@@ -558,7 +558,7 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
       {/* Duolingo-style Bottom Feedback Banner */}
       {selected !== null && (
         <div
-          className={`fixed bottom-0 inset-x-0 z-50 p-4 border-t-4 shadow-2xl ${
+          className={`fixed bottom-0 inset-x-0 z-50 px-4 pt-4 pb-safe-bar border-t-4 shadow-2xl ${
             isCorrectSelected
               ? 'bg-emerald-50 border-emerald-400'
               : 'bg-rose-50 border-rose-400'

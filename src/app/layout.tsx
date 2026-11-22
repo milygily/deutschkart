@@ -22,6 +22,11 @@ export const metadata: Metadata = {
   description:
     'یادگیری و حفظ لغات آلمانی (A1 تا B2) با فلش‌کارت‌های سوایپ، آزمون آرتیکل و معنی، و ساخت خودکار کارت از متن و عکس با هوش مصنوعی',
   manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'DeutschKart',
+  },
 };
 
 export const viewport: Viewport = {
@@ -29,6 +34,7 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

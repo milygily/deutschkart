@@ -52,3 +52,14 @@ body {
   background: #cbd5e1;
   border-radius: 9999px;
 }
+
+/* iOS Home Indicator & Notch Safe-Area Helpers (matches native Duolingo spacing) */
+.pb-safe-nav {
+  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 8px), 24px);
+}
+.pb-safe-bar {
+  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 12px), 24px);
+}
+.pt-safe-header {
+  padding-top: env(safe-area-inset-top, 0px);
+}

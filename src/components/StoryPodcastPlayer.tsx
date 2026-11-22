@@ -990,7 +990,7 @@ export function StoryPodcastPlayer({
 
       {/* ================= STICKY APPLE-STYLE PODCAST PLAYER BAR ================= */}
       {tab === 'podcast' && (
-        <div className="fixed bottom-0 inset-x-0 z-50 bg-slate-900/95 backdrop-blur-xl border-t border-white/15 px-4 pt-3 pb-5 shadow-2xl">
+        <div className="fixed bottom-0 inset-x-0 z-50 bg-slate-900/95 backdrop-blur-xl border-t border-white/15 px-4 pt-3 pb-safe-bar shadow-2xl">
           <div className="max-w-2xl mx-auto space-y-3">
             {/* Scrubber Timeline Slider */}
             <div className="space-y-1" dir="ltr">

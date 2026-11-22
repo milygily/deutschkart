@@ -1385,7 +1385,7 @@ export function LessonPlayer({
   return (
     <div className="min-h-screen flex flex-col bg-[#f6f8fb]">
       {/* Sticky Top Progress Header */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b-2 border-slate-100">
+      <header className="sticky top-0 z-30 pt-safe-header bg-white/95 backdrop-blur-md border-b-2 border-slate-100">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center gap-3">
           <button
             onClick={onExit}
@@ -2025,7 +2025,7 @@ export function LessonPlayer({
                 : 'bg-white border-slate-200'
         }`}
       >
-        <div className="max-w-2xl mx-auto px-4 py-4 space-y-3">
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-safe-bar space-y-3">
           {status !== 'idle' && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}

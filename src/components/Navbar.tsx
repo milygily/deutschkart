@@ -45,7 +45,7 @@ export function Navbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b-2 border-slate-100">
+      <header className="sticky top-0 z-40 pt-safe-header bg-white/95 backdrop-blur-md border-b-2 border-slate-100">
         <div className="max-w-5xl mx-auto px-3 sm:px-4 h-16 flex items-center justify-between gap-2">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 group shrink-0">
@@ -306,8 +306,8 @@ export function Navbar() {
         </div>
       </header>
 
-      {/* Mobile Bottom Navigation Bar (5 crisp items) */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t-2 border-slate-100 px-1.5 py-1.5 grid grid-cols-5 gap-0.5">
+      {/* Mobile Bottom Navigation Bar (5 crisp items with Duolingo-style iOS safe-area lift) */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t-2 border-slate-100 px-2 pt-2.5 pb-safe-nav grid grid-cols-5 gap-1">
         <Link
           href="/"
           className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-2xl text-[10px] font-extrabold ${
