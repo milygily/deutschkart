@@ -11,13 +11,19 @@ import {
   Trophy,
   RefreshCw,
   Star,
-  Shuffle,
 } from 'lucide-react';
 import { formatGermanDisplay, type WordCard } from '@/lib/types';
 import { speakGerman } from '@/lib/speech';
 import { useApp } from './AppProvider';
+import { InteractiveSentence } from './InteractiveSentence';
 
-export type QuizMode = 'meaning' | 'article' | 'mix';
+export type QuizMode =
+  | 'meaning'
+  | 'meaning-de-fa'
+  | 'meaning-fa-de'
+  | 'meaning-mix'
+  | 'article'
+  | 'mix';
 
 interface QuizQuestion {
   id: string;
@@ -43,11 +49,12 @@ function shuffle<T>(arr: T[]): T[] {
   return copy;
 }
 
-function buildQuestions(cards: WordCard[], mode: QuizMode, reverseMeaning: boolean): QuizQuestion[] {
+function buildQuestions(cards: WordCard[], mode: QuizMode): QuizQuestion[] {
   const pool = shuffle(cards);
   const questions: QuizQuestion[] = [];
 
-  for (const card of pool) {
+  for (let idx = 0; idx < pool.length; idx++) {
+    const card = pool[idx];
     const isNounWithArticle =
       card.article === 'der' || card.article === 'die' || card.article === 'das';
 
@@ -63,9 +70,16 @@ function buildQuestions(cards: WordCard[], mode: QuizMode, reverseMeaning: boole
       continue;
     }
 
-    // Build meaning question
+    // Determine meaning direction
+    const askFaToDe =
+      mode === 'meaning-fa-de'
+        ? true
+        : mode === 'meaning-mix'
+          ? idx % 2 === 1
+          : false;
+
     const others = shuffle(cards.filter((c) => c.id !== card.id));
-    if (!reverseMeaning) {
+    if (!askFaToDe) {
       const distractors = others
         .map((o) => o.persianMeaning)
         .filter((m) => m !== card.persianMeaning)
@@ -104,19 +118,18 @@ function buildQuestions(cards: WordCard[], mode: QuizMode, reverseMeaning: boole
     }
   }
 
-  return mode === 'mix' ? shuffle(questions) : questions;
+  return mode === 'mix' || mode === 'meaning-mix' ? shuffle(questions) : questions;
 }
 
 export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps) {
   const { recordQuiz, starredIds, toggleStar } = useApp();
-  const [reverseMeaning, setReverseMeaning] = useState(false);
   const [sourceCards, setSourceCards] = useState<WordCard[]>(cards);
   const [seedKey, setSeedKey] = useState(0);
 
   const questions = useMemo(
-    () => buildQuestions(sourceCards, mode, reverseMeaning),
+    () => buildQuestions(sourceCards, mode),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sourceCards, mode, reverseMeaning, seedKey]
+    [sourceCards, mode, seedKey]
   );
 
   const [index, setIndex] = useState(0);
@@ -271,7 +284,11 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
                 ? 'آزمون آرتیکل (der / die / das)'
                 : mode === 'mix'
                   ? 'آزمون ترکیبی (معنی + آرتیکل)'
-                  : 'آزمون معنی کلمات'}
+                  : mode === 'meaning-fa-de'
+                    ? 'آزمون معنی (فارسی به آلمانی)'
+                    : mode === 'meaning-mix'
+                      ? 'آزمون معنی (قاطی 🔀)'
+                      : 'آزمون معنی (آلمانی به فارسی)'}
             </span>
             <span>
               {index + 1} از {questions.length}
@@ -284,22 +301,6 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
             />
           </div>
         </div>
-
-        {mode === 'meaning' && (
-          <button
-            onClick={() => {
-              setReverseMeaning((r) => !r);
-              setIndex(0);
-              setSelected(null);
-              setCorrectCount(0);
-              setWrongCards([]);
-            }}
-            title="جابجایی جهت آزمون (آلمانی↔فارسی)"
-            className="rounded-2xl bg-white border-2 border-slate-200 p-2 text-slate-500 hover:text-sky-600"
-          >
-            <Shuffle className="w-5 h-5" />
-          </button>
-        )}
       </div>
 
       {/* Question Card */}
@@ -491,12 +492,11 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
 
             {current.card.exampleDe && (
               <div className="rounded-2xl bg-white/95 border border-slate-200/70 px-4 py-3 space-y-1.5 shadow-xs">
-                <div
-                  dir="ltr"
+                <InteractiveSentence
+                  sentence={current.card.exampleDe}
+                  targetCard={current.card}
                   className="font-de text-base sm:text-lg font-extrabold text-slate-800 text-left leading-relaxed"
-                >
-                  {current.card.exampleDe}
-                </div>
+                />
                 <div className="text-sm sm:text-base text-slate-600 font-bold leading-relaxed">
                   {current.card.exampleFa}
                 </div>

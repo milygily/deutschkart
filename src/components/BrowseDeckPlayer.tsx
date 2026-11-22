@@ -15,6 +15,7 @@ import {
 import { formatGermanDisplay, getArticleStyle, type WordCard } from '@/lib/types';
 import { speakGerman } from '@/lib/speech';
 import { useApp } from './AppProvider';
+import { InteractiveSentence } from './InteractiveSentence';
 
 interface BrowseDeckPlayerProps {
   deckId: number;
@@ -289,9 +290,9 @@ export function BrowseDeckPlayer({
                   <div
                     className={`absolute inset-0 backface-hidden rounded-[2rem] bg-white border-2 ${artStyle.ring} ${
                       isCenter ? 'shadow-xl' : 'shadow-md'
-                    } flex flex-col justify-between overflow-hidden`}
+                    } flex flex-col justify-between overflow-visible`}
                   >
-                    <div className={`h-3 w-full ${artStyle.bar}`} />
+                    <div className={`h-3 w-full rounded-t-[1.85rem] ${artStyle.bar}`} />
 
                     {/* Header Badges + Word Audio */}
                     <div className="px-5 pt-4 flex items-center justify-between" dir="rtl">
@@ -359,9 +360,11 @@ export function BrowseDeckPlayer({
                     <div className="px-5 pb-4 space-y-2.5">
                       {card.exampleDe && (
                         <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-3.5 flex items-center justify-between gap-2.5" dir="ltr">
-                          <p className="font-de text-sm sm:text-base font-extrabold text-slate-700 leading-relaxed text-left">
-                            {card.exampleDe}
-                          </p>
+                          <InteractiveSentence
+                            sentence={card.exampleDe}
+                            targetCard={card}
+                            className="font-de text-sm sm:text-base font-extrabold text-slate-700 leading-relaxed text-left flex-1"
+                          />
                           <button
                             type="button"
                             data-no-flip="true"
@@ -380,16 +383,16 @@ export function BrowseDeckPlayer({
                       )}
 
                       <div className="text-center text-[11px] font-bold text-slate-400" dir="rtl">
-                        برای دیدن معنی کلمه و مثال ضربه بزن 👆
+                        برای دیدن معنی ضربه بزن 👆 · روی هر کلمه مثال بزنی معنیش میاد!
                       </div>
                     </div>
                   </div>
 
                   {/* ================= BACK SIDE (PERSIAN MEANING OF WORD + EXAMPLE) ================= */}
                   <div
-                    className={`absolute inset-0 backface-hidden rotate-y-180 rounded-[2rem] bg-gradient-to-b from-white to-slate-50 border-2 ${artStyle.ring} shadow-xl flex flex-col justify-between overflow-hidden`}
+                    className={`absolute inset-0 backface-hidden rotate-y-180 rounded-[2rem] bg-gradient-to-b from-white to-slate-50 border-2 ${artStyle.ring} shadow-xl flex flex-col justify-between overflow-visible`}
                   >
-                    <div className={`h-3 w-full ${artStyle.bar}`} />
+                    <div className={`h-3 w-full rounded-t-[1.85rem] ${artStyle.bar}`} />
 
                     {/* Small German Reminder Header + Audio */}
                     <div className="px-5 pt-4 flex items-center justify-between" dir="ltr">
@@ -442,9 +445,11 @@ export function BrowseDeckPlayer({
                         <div className="rounded-2xl bg-white border-2 border-slate-100 p-3.5 space-y-2 shadow-xs">
                           {card.exampleDe && (
                             <div className="flex items-start justify-between gap-2" dir="ltr">
-                              <p className="font-de text-sm sm:text-base font-extrabold text-slate-800 leading-relaxed text-left">
-                                {card.exampleDe}
-                              </p>
+                              <InteractiveSentence
+                                sentence={card.exampleDe}
+                                targetCard={card}
+                                className="font-de text-sm sm:text-base font-extrabold text-slate-800 leading-relaxed text-left flex-1"
+                              />
                               <button
                                 type="button"
                                 data-no-flip="true"

@@ -160,15 +160,35 @@ export default function DeckDetailPage() {
                   تمرین فلش‌کارت (سوایپ چپ و راست 🃏)
                 </Link>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <Link
-                    href={`/deck/${deck.id}/quiz?mode=meaning`}
-                    className="btn-3d rounded-2xl bg-sky-500 border-b-4 border-sky-700 text-white py-3.5 px-4 flex items-center justify-center gap-2 font-extrabold text-sm hover:bg-sky-400"
-                  >
+                {/* Meaning Quiz — 3 Direction Sub-Buttons */}
+                <div className="rounded-2xl bg-sky-50 border-2 border-sky-200 p-3 space-y-2">
+                  <div className="flex items-center gap-1.5 text-xs font-black text-sky-700 px-1">
                     <Target className="w-4 h-4" />
-                    آزمون معنی
-                  </Link>
+                    <span>آزمون معنی (جهت آزمون را انتخاب کن):</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Link
+                      href={`/deck/${deck.id}/quiz?mode=meaning-de-fa`}
+                      className="btn-3d rounded-xl bg-sky-500 border-b-4 border-sky-700 text-white py-2.5 px-2 text-center font-extrabold text-xs sm:text-sm hover:bg-sky-400"
+                    >
+                      آلمانی به فارسی
+                    </Link>
+                    <Link
+                      href={`/deck/${deck.id}/quiz?mode=meaning-fa-de`}
+                      className="btn-3d rounded-xl bg-sky-500 border-b-4 border-sky-700 text-white py-2.5 px-2 text-center font-extrabold text-xs sm:text-sm hover:bg-sky-400"
+                    >
+                      فارسی به آلمانی
+                    </Link>
+                    <Link
+                      href={`/deck/${deck.id}/quiz?mode=meaning-mix`}
+                      className="btn-3d rounded-xl bg-indigo-500 border-b-4 border-indigo-700 text-white py-2.5 px-2 text-center font-extrabold text-xs sm:text-sm hover:bg-indigo-400"
+                    >
+                      قاطی 🔀
+                    </Link>
+                  </div>
+                </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <Link
                     href={`/deck/${deck.id}/quiz?mode=article`}
                     className={`btn-3d rounded-2xl border-b-4 py-3.5 px-4 flex items-center justify-center gap-2 font-extrabold text-sm ${
@@ -186,7 +206,7 @@ export default function DeckDetailPage() {
                     className="btn-3d rounded-2xl bg-amber-400 border-b-4 border-amber-600 text-amber-950 py-3.5 px-4 flex items-center justify-center gap-2 font-extrabold text-sm hover:bg-amber-300"
                   >
                     <Zap className="w-4 h-4" />
-                    آزمون ترکیبی
+                    آزمون ترکیبی (معنی + آرتیکل)
                   </Link>
                 </div>
               </div>

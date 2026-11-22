@@ -15,8 +15,17 @@ function StarredContent() {
   const searchParams = useSearchParams();
   const view = searchParams.get('view'); // null | 'study' | 'quiz'
   const rawMode = searchParams.get('mode');
-  const quizMode: QuizMode =
-    rawMode === 'article' || rawMode === 'mix' ? rawMode : 'meaning';
+  const validModes: QuizMode[] = [
+    'meaning',
+    'meaning-de-fa',
+    'meaning-fa-de',
+    'meaning-mix',
+    'article',
+    'mix',
+  ];
+  const quizMode: QuizMode = validModes.includes(rawMode as QuizMode)
+    ? (rawMode as QuizMode)
+    : 'meaning-de-fa';
 
   const { user, loadingUser, starredIds, toggleStar, showEnglish } = useApp();
   const [cards, setCards] = useState<WordCard[]>([]);
@@ -114,32 +123,58 @@ function StarredContent() {
         </div>
 
         {visibleCards.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <Link
-              href="/starred?view=study"
-              className="btn-3d rounded-2xl bg-white text-emerald-700 border-b-4 border-amber-600/30 py-3 px-4 font-black text-sm flex items-center justify-center gap-2"
-            >
-              <Layers className="w-4 h-4" />
-              مرور سوایپ 🃏
-            </Link>
-            <Link
-              href="/starred?view=quiz&mode=meaning"
-              className={`btn-3d rounded-2xl bg-amber-950 text-white border-b-4 border-black/40 py-3 px-4 font-extrabold text-sm flex items-center justify-center gap-2 ${
-                visibleCards.length < 2 ? 'opacity-50 pointer-events-none' : ''
-              }`}
-            >
-              <Target className="w-4 h-4" />
-              آزمون معنی
-            </Link>
-            <Link
-              href="/starred?view=quiz&mode=article"
-              className={`btn-3d rounded-2xl bg-violet-600 text-white border-b-4 border-violet-800 py-3 px-4 font-extrabold text-sm flex items-center justify-center gap-2 ${
-                nounCount === 0 ? 'opacity-50 pointer-events-none' : ''
-              }`}
-            >
-              <Palette className="w-4 h-4" />
-              آزمون آرتیکل ({nounCount})
-            </Link>
+          <div className="space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <Link
+                href="/starred?view=study"
+                className="btn-3d rounded-2xl bg-white text-emerald-700 border-b-4 border-amber-600/30 py-3 px-4 font-black text-sm flex items-center justify-center gap-2"
+              >
+                <Layers className="w-4 h-4" />
+                مرور سوایپ 🃏
+              </Link>
+              <Link
+                href="/starred?view=quiz&mode=article"
+                className={`btn-3d rounded-2xl bg-violet-600 text-white border-b-4 border-violet-800 py-3 px-4 font-extrabold text-sm flex items-center justify-center gap-2 ${
+                  nounCount === 0 ? 'opacity-50 pointer-events-none' : ''
+                }`}
+              >
+                <Palette className="w-4 h-4" />
+                آزمون آرتیکل ({nounCount})
+              </Link>
+            </div>
+
+            <div className="rounded-2xl bg-white/35 p-2.5 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-black text-amber-950 px-1">
+                <Target className="w-3.5 h-3.5" />
+                <span>آزمون معنی:</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Link
+                  href="/starred?view=quiz&mode=meaning-de-fa"
+                  className={`btn-3d rounded-xl bg-amber-950 text-white border-b-4 border-black/40 py-2 px-2 text-center font-extrabold text-xs ${
+                    visibleCards.length < 2 ? 'opacity-50 pointer-events-none' : ''
+                  }`}
+                >
+                  آلمانی به فارسی
+                </Link>
+                <Link
+                  href="/starred?view=quiz&mode=meaning-fa-de"
+                  className={`btn-3d rounded-xl bg-amber-950 text-white border-b-4 border-black/40 py-2 px-2 text-center font-extrabold text-xs ${
+                    visibleCards.length < 2 ? 'opacity-50 pointer-events-none' : ''
+                  }`}
+                >
+                  فارسی به آلمانی
+                </Link>
+                <Link
+                  href="/starred?view=quiz&mode=meaning-mix"
+                  className={`btn-3d rounded-xl bg-amber-900 text-white border-b-4 border-black/40 py-2 px-2 text-center font-extrabold text-xs ${
+                    visibleCards.length < 2 ? 'opacity-50 pointer-events-none' : ''
+                  }`}
+                >
+                  قاطی 🔀
+                </Link>
+              </div>
+            </div>
           </div>
         )}
       </section>

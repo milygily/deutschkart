@@ -11,8 +11,17 @@ function QuizContent() {
   const searchParams = useSearchParams();
   const deckId = Number(params.id);
   const rawMode = searchParams.get('mode');
-  const mode: QuizMode =
-    rawMode === 'article' || rawMode === 'mix' ? rawMode : 'meaning';
+  const validModes: QuizMode[] = [
+    'meaning',
+    'meaning-de-fa',
+    'meaning-fa-de',
+    'meaning-mix',
+    'article',
+    'mix',
+  ];
+  const mode: QuizMode = validModes.includes(rawMode as QuizMode)
+    ? (rawMode as QuizMode)
+    : 'meaning-de-fa';
 
   const [title, setTitle] = useState('');
   const [cards, setCards] = useState<WordCard[]>([]);
