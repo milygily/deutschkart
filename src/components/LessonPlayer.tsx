@@ -13,6 +13,10 @@ import {
   Sparkles,
   RotateCcw,
   ArrowLeft,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
   Zap,
   Flame,
   Snowflake,
@@ -66,6 +70,30 @@ interface LessonPlayerProps {
 interface QueueItem {
   exercise: Exercise;
   isRetry: boolean;
+}
+
+interface StepSnapshot {
+  status: 'correct' | 'wrong' | 'skipped';
+  minorTypoNote: boolean;
+  selectedTokenIndices: number[];
+  selectedOption: string | null;
+  typedText: string;
+  spokenText: string;
+  matchedIds: string[];
+  matchLeftOrder: Array<{ id: string; de: string }>;
+  matchRightOrder: Array<{ id: string; fa: string }>;
+}
+
+interface DraftState {
+  idx: number;
+  selectedTokenIndices: number[];
+  selectedOption: string | null;
+  typedText: string;
+  spokenText: string;
+  matchedIds: string[];
+  matchLeftOrder: Array<{ id: string; de: string }>;
+  matchRightOrder: Array<{ id: string; fa: string }>;
+  matchMistakeCount: number;
 }
 
 interface SpeechRecognitionAlternativeLike {
@@ -130,6 +158,11 @@ export function LessonPlayer({
     exercises.map((exercise) => ({ exercise, isRetry: false }))
   );
   const [currentIdx, setCurrentIdx] = useState(0);
+  const [furthestIdx, setFurthestIdx] = useState(0);
+  const [historyByIdx, setHistoryByIdx] = useState<Record<number, StepSnapshot>>({});
+  const historyRef = useRef<Record<number, StepSnapshot>>({});
+  const draftRef = useRef<DraftState | null>(null);
+  const completionRecordedRef = useRef(false);
   const [correctFirstTry, setCorrectFirstTry] = useState(0);
   const [answeredFirstTryIds, setAnsweredFirstTryIds] = useState<Set<string>>(() => new Set());
   const [finished, setFinished] = useState(false);
@@ -171,6 +204,11 @@ export function LessonPlayer({
   useEffect(() => {
     setQueue(exercises.map((exercise) => ({ exercise, isRetry: false })));
     setCurrentIdx(0);
+    setFurthestIdx(0);
+    setHistoryByIdx({});
+    historyRef.current = {};
+    draftRef.current = null;
+    completionRecordedRef.current = false;
     setCorrectFirstTry(0);
     setAnsweredFirstTryIds(new Set());
     setFinished(false);
@@ -196,30 +234,103 @@ export function LessonPlayer({
     setIsListeningMic(false);
   }, []);
 
-  // Reset per-question interaction state whenever currentIdx changes
+  // Deterministic snapshot saver called synchronously the moment a question is answered/skipped
+  const commitStepResult = useCallback(
+    (
+      nextStatus: 'correct' | 'wrong' | 'skipped',
+      overrides?: {
+        minorTypoNote?: boolean;
+        spokenText?: string;
+        matchedIds?: string[];
+      }
+    ) => {
+      const finalMinorTypo = overrides?.minorTypoNote ?? false;
+      setMinorTypoNote(finalMinorTypo);
+      setStatus(nextStatus);
+
+      if (!historyRef.current[currentIdx]) {
+        const snap: StepSnapshot = {
+          status: nextStatus,
+          minorTypoNote: finalMinorTypo,
+          selectedTokenIndices: [...selectedTokenIndices],
+          selectedOption,
+          typedText,
+          spokenText: overrides?.spokenText ?? spokenText,
+          matchedIds: overrides?.matchedIds ?? Array.from(matchedIds),
+          matchLeftOrder: [...matchLeftOrder],
+          matchRightOrder: [...matchRightOrder],
+        };
+        historyRef.current = { ...historyRef.current, [currentIdx]: snap };
+        setHistoryByIdx(historyRef.current);
+      }
+    },
+    [
+      currentIdx,
+      matchLeftOrder,
+      matchRightOrder,
+      matchedIds,
+      selectedOption,
+      selectedTokenIndices,
+      spokenText,
+      typedText,
+    ]
+  );
+
+  // Restore snapshot (for past questions), draft (when returning to active question), or reset fresh
   useEffect(() => {
     stopMic();
+    setMicError('');
+    setSelectedLeftId(null);
+    setSelectedRightId(null);
+    setWrongFlashPair(null);
+
+    if (!current) return;
+
+    const savedSnap = historyRef.current[currentIdx];
+    if (savedSnap) {
+      setStatus(savedSnap.status);
+      setMinorTypoNote(savedSnap.minorTypoNote);
+      setSelectedTokenIndices(savedSnap.selectedTokenIndices);
+      setSelectedOption(savedSnap.selectedOption);
+      setTypedText(savedSnap.typedText);
+      setSpokenText(savedSnap.spokenText);
+      setMatchedIds(new Set(savedSnap.matchedIds));
+      if (savedSnap.matchLeftOrder.length > 0) setMatchLeftOrder(savedSnap.matchLeftOrder);
+      if (savedSnap.matchRightOrder.length > 0) setMatchRightOrder(savedSnap.matchRightOrder);
+      return;
+    }
+
+    const savedDraft = draftRef.current;
+    if (savedDraft && savedDraft.idx === currentIdx) {
+      setStatus('idle');
+      setMinorTypoNote(false);
+      setSelectedTokenIndices(savedDraft.selectedTokenIndices);
+      setSelectedOption(savedDraft.selectedOption);
+      setTypedText(savedDraft.typedText);
+      setSpokenText(savedDraft.spokenText);
+      setMatchedIds(new Set(savedDraft.matchedIds));
+      setMatchMistakeCount(savedDraft.matchMistakeCount);
+      if (savedDraft.matchLeftOrder.length > 0) setMatchLeftOrder(savedDraft.matchLeftOrder);
+      if (savedDraft.matchRightOrder.length > 0) setMatchRightOrder(savedDraft.matchRightOrder);
+      draftRef.current = null;
+      return;
+    }
+
     setStatus('idle');
     setMinorTypoNote(false);
     setSelectedTokenIndices([]);
     setSelectedOption(null);
     setTypedText('');
     setSpokenText('');
-    setMicError('');
-    setSelectedLeftId(null);
-    setSelectedRightId(null);
     setMatchedIds(new Set());
-    setWrongFlashPair(null);
     setMatchMistakeCount(0);
-
-    if (!current) return;
 
     if (current.type === 'match-pairs') {
       setMatchLeftOrder(shuffleArray(current.pairs.map((p) => ({ id: p.id, de: p.de }))));
       setMatchRightOrder(shuffleArray(current.pairs.map((p) => ({ id: p.id, fa: p.fa }))));
     }
 
-    // Auto-play audio gently for listening exercises
+    // Auto-play audio gently for fresh listening exercises
     if (current.type === 'listening') {
       const t = setTimeout(() => {
         speakGerman(current.audioDe, 0.9);
@@ -227,7 +338,7 @@ export function LessonPlayer({
       return () => clearTimeout(t);
     }
 
-    // Focus input on typing exercises
+    // Focus input on fresh typing exercises
     if (current.type === 'typing') {
       const t = setTimeout(() => {
         inputRef.current?.focus();
@@ -235,6 +346,42 @@ export function LessonPlayer({
       return () => clearTimeout(t);
     }
   }, [currentIdx, current, stopMic]);
+
+  const navigateToIdx = useCallback(
+    (targetIdx: number) => {
+      if (targetIdx < 0 || targetIdx > furthestIdx || targetIdx === currentIdx) return;
+      // Preserve active unanswered draft when stepping back so nothing is lost
+      if (currentIdx === furthestIdx && status === 'idle' && !historyRef.current[currentIdx]) {
+        draftRef.current = {
+          idx: currentIdx,
+          selectedTokenIndices: [...selectedTokenIndices],
+          selectedOption,
+          typedText,
+          spokenText,
+          matchedIds: Array.from(matchedIds),
+          matchLeftOrder: [...matchLeftOrder],
+          matchRightOrder: [...matchRightOrder],
+          matchMistakeCount,
+        };
+      }
+      setCurrentIdx(targetIdx);
+    },
+    [
+      currentIdx,
+      furthestIdx,
+      matchLeftOrder,
+      matchMistakeCount,
+      matchRightOrder,
+      matchedIds,
+      selectedOption,
+      selectedTokenIndices,
+      spokenText,
+      status,
+      typedText,
+    ]
+  );
+
+  const isReviewingPast = currentIdx < furthestIdx || (completionRecordedRef.current && Boolean(historyByIdx[currentIdx]));
 
   // Stop mic on unmount
   useEffect(() => {
@@ -297,7 +444,7 @@ export function LessonPlayer({
           setSelectedRightId(null);
 
           if (nextMatched.size === current.pairs.length) {
-            setStatus('correct');
+            commitStepResult('correct', { matchedIds: Array.from(nextMatched) });
             recordOutcome(matchMistakeCount <= 1);
           }
         } else {
@@ -311,7 +458,7 @@ export function LessonPlayer({
         }
       }
     },
-    [current, matchMistakeCount, matchedIds, recordOutcome, selectedLeftId, selectedRightId, status]
+    [commitStepResult, current, matchMistakeCount, matchedIds, recordOutcome, selectedLeftId, selectedRightId, status]
   );
 
   // Start / Stop Web Speech Recognition
@@ -355,7 +502,7 @@ export function LessonPlayer({
         if (score >= 0.68) {
           passed = true;
           stopMic();
-          setStatus('correct');
+          commitStepResult('correct', { spokenText: latestTranscript });
           recordOutcome(true);
         }
       };
@@ -379,7 +526,7 @@ export function LessonPlayer({
           const score = computeSpeechSimilarity(latestTranscript, current.targetDe);
           if (score >= 0.65) {
             passed = true;
-            setStatus('correct');
+            commitStepResult('correct', { spokenText: latestTranscript });
             recordOutcome(true);
           } else {
             setMicError('کمی نامفهوم بود — یک بار دیگر امتحان کن یا اگر الان شرایطش نیست رد کن.');
@@ -394,13 +541,13 @@ export function LessonPlayer({
       setIsListeningMic(false);
       setMicError('امکان فعال‌سازی میکروفون نبود. از دکمه رد کردن استفاده کنید.');
     }
-  }, [current, isListeningMic, recordOutcome, status, stopMic]);
+  }, [commitStepResult, current, isListeningMic, recordOutcome, status, stopMic]);
 
   const handleSkipSpeaking = useCallback(() => {
     stopMic();
-    setStatus('skipped');
+    commitStepResult('skipped');
     recordOutcome(true, true);
-  }, [recordOutcome, stopMic]);
+  }, [commitStepResult, recordOutcome, stopMic]);
 
   // Insert special German char at cursor position
   const insertGermanChar = (ch: string) => {
@@ -446,8 +593,7 @@ export function LessonPlayer({
     if (current.type === 'word-bank') {
       const built = selectedTokenIndices.map((i) => activeTokens[i]).join(' ');
       const res = checkGermanAnswer(built, current.targetDe);
-      setMinorTypoNote(Boolean(res.minorTypo));
-      setStatus(res.correct ? 'correct' : 'wrong');
+      commitStepResult(res.correct ? 'correct' : 'wrong', { minorTypoNote: Boolean(res.minorTypo) });
       recordOutcome(res.correct);
       speakGerman(current.targetDe, 0.92);
       return;
@@ -455,7 +601,7 @@ export function LessonPlayer({
 
     if (current.type === 'grammar-cloze') {
       const isCorrect = selectedOption === current.answer;
-      setStatus(isCorrect ? 'correct' : 'wrong');
+      commitStepResult(isCorrect ? 'correct' : 'wrong');
       recordOutcome(isCorrect);
       const audioText =
         current.fullSentenceDe ||
@@ -472,8 +618,7 @@ export function LessonPlayer({
           ? selectedTokenIndices.map((i) => activeTokens[i]).join(' ')
           : typedText;
       const res = checkGermanAnswer(userVal, current.audioDe);
-      setMinorTypoNote(Boolean(res.minorTypo));
-      setStatus(res.correct ? 'correct' : 'wrong');
+      commitStepResult(res.correct ? 'correct' : 'wrong', { minorTypoNote: Boolean(res.minorTypo) });
       recordOutcome(res.correct);
       return;
     }
@@ -486,8 +631,7 @@ export function LessonPlayer({
         current.acceptedAnswers || [],
         strictShort
       );
-      setMinorTypoNote(Boolean(res.minorTypo));
-      setStatus(res.correct ? 'correct' : 'wrong');
+      commitStepResult(res.correct ? 'correct' : 'wrong', { minorTypoNote: Boolean(res.minorTypo) });
       recordOutcome(res.correct);
       const speakTarget =
         current.sentenceBefore || current.sentenceAfter
@@ -500,19 +644,24 @@ export function LessonPlayer({
     if (current.type === 'speaking') {
       const score = computeSpeechSimilarity(spokenText, current.targetDe);
       const isCorrect = score >= 0.65;
-      setStatus(isCorrect ? 'correct' : 'wrong');
+      commitStepResult(isCorrect ? 'correct' : 'wrong');
       recordOutcome(isCorrect);
     }
-  }, [activeTokens, current, recordOutcome, selectedOption, selectedTokenIndices, spokenText, status, typedText]);
+  }, [activeTokens, commitStepResult, current, recordOutcome, selectedOption, selectedTokenIndices, spokenText, status, typedText]);
 
   const handleContinue = useCallback(async () => {
     if (currentIdx + 1 < queue.length) {
-      setCurrentIdx((i) => i + 1);
+      const next = currentIdx + 1;
+      setFurthestIdx((f) => Math.max(f, next));
+      setCurrentIdx(next);
       return;
     }
 
-    // Lesson finished!
+    // Lesson finished! (Guard so reviewing answers after finish never double-awards XP)
     setFinished(true);
+    if (completionRecordedRef.current) return;
+    completionRecordedRef.current = true;
+
     confetti({
       particleCount: 95,
       spread: 75,
@@ -544,7 +693,11 @@ export function LessonPlayer({
     const onKeyDown = (e: KeyboardEvent) => {
       if (finished) return;
       if (e.key === 'Enter' && !e.shiftKey) {
-        if (status === 'idle' && canCheck) {
+        if (isReviewingPast) {
+          e.preventDefault();
+          if (currentIdx < furthestIdx) navigateToIdx(currentIdx + 1);
+          else setFinished(true);
+        } else if (status === 'idle' && canCheck) {
           e.preventDefault();
           handleCheck();
         } else if (status !== 'idle') {
@@ -555,7 +708,7 @@ export function LessonPlayer({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [canCheck, finished, handleCheck, handleContinue, status]);
+  }, [canCheck, currentIdx, finished, furthestIdx, handleCheck, handleContinue, isReviewingPast, navigateToIdx, status]);
 
   // Correct answer display text for wrong banner
   const correctDisplay = useMemo(() => {
@@ -578,8 +731,9 @@ export function LessonPlayer({
     }
   }, [current]);
 
-  // Progress %
-  const progressPct = queue.length > 0 ? Math.round(((currentIdx + (status !== 'idle' ? 1 : 0)) / queue.length) * 100) : 0;
+  // Progress % based on furthest progress so stepping back to review doesn't shrink the bar
+  const answeredCount = Object.keys(historyByIdx).length;
+  const progressPct = queue.length > 0 ? Math.round((answeredCount / queue.length) * 100) : 0;
 
   if (!exercises.length) {
     return (
@@ -693,6 +847,17 @@ export function LessonPlayer({
 
           {/* Actions */}
           <div className="space-y-2.5 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setFinished(false);
+                setCurrentIdx(Math.max(0, queue.length - 1));
+              }}
+              className="btn-3d w-full rounded-2xl bg-indigo-50 border-2 border-indigo-200 border-b-4 text-indigo-700 py-3 font-black text-sm flex items-center justify-center gap-2 hover:bg-indigo-100"
+            >
+              <Eye className="w-4 h-4" />
+              مرور سوال‌ها و توضیحات این جلسه
+            </button>
             {onSecondaryAction && secondaryActionLabel && (
               <button
                 onClick={onSecondaryAction}
@@ -729,7 +894,7 @@ export function LessonPlayer({
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex-1 space-y-1">
+          <div className="flex-1 space-y-1 min-w-0">
             <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-400">
               <span className="truncate max-w-[65%]">{title}</span>
               <span className="font-de">
@@ -745,6 +910,30 @@ export function LessonPlayer({
             </div>
           </div>
 
+          {/* Back / Forward Question History Controls */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              disabled={currentIdx === 0}
+              onClick={() => navigateToIdx(currentIdx - 1)}
+              title="مشاهده سوال قبلی"
+              aria-label="سوال قبلی"
+              className="w-9 h-9 rounded-xl border-2 border-slate-200 bg-white text-slate-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 flex items-center justify-center transition disabled:opacity-35 disabled:pointer-events-none"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              disabled={currentIdx >= furthestIdx}
+              onClick={() => navigateToIdx(currentIdx + 1)}
+              title="رفتن به سوال بعدی"
+              aria-label="سوال بعدی"
+              className="w-9 h-9 rounded-xl border-2 border-slate-200 bg-white text-slate-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 flex items-center justify-center transition disabled:opacity-35 disabled:pointer-events-none"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          </div>
+
           <div className="hidden sm:flex items-center gap-1 rounded-2xl bg-amber-50 border-2 border-amber-200 px-2.5 py-1 text-xs font-black text-amber-600 shrink-0">
             <Zap className="w-3.5 h-3.5 fill-amber-500" />
             <span className="font-de">+{xpReward}</span>
@@ -753,7 +942,32 @@ export function LessonPlayer({
       </header>
 
       {/* Main Exercise Area */}
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-5 pb-44">
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-5 pb-48">
+        {isReviewingPast && (
+          <div className="mb-4 rounded-2xl bg-indigo-50 border-2 border-indigo-200 px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-black text-indigo-800">
+              <Eye className="w-4 h-4 text-indigo-600 shrink-0" />
+              مرور سوال {currentIdx + 1} (فقط نمایش پاسخ و توضیح)
+            </span>
+            {currentIdx < furthestIdx ? (
+              <button
+                type="button"
+                onClick={() => navigateToIdx(furthestIdx)}
+                className="rounded-xl bg-indigo-600 text-white px-3 py-1 text-xs font-black hover:bg-indigo-500 transition"
+              >
+                برگشت به سوال فعلی ({furthestIdx + 1}) ←
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setFinished(true)}
+                className="rounded-xl bg-emerald-600 text-white px-3 py-1 text-xs font-black hover:bg-emerald-500 transition"
+              >
+                بازگشت به نتیجه جلسه ←
+              </button>
+            )}
+          </div>
+        )}
         {currentItem.isRetry && (
           <div className="mb-3 inline-flex items-center gap-1.5 rounded-xl bg-amber-100 text-amber-800 px-3 py-1 text-xs font-black">
             <RotateCcw className="w-3.5 h-3.5" />
@@ -1421,6 +1635,34 @@ export function LessonPlayer({
                 تمام جفت‌ها را به هم وصل کن تا خودکار ثبت شود ⚡
               </div>
             )
+          ) : isReviewingPast ? (
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                disabled={currentIdx === 0}
+                onClick={() => navigateToIdx(currentIdx - 1)}
+                className="btn-3d rounded-2xl bg-white border-2 border-slate-300 border-b-4 text-slate-700 px-4 py-3.5 font-black text-sm flex items-center justify-center gap-1.5 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <ArrowRight className="w-4 h-4" />
+                <span>قبلی</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  currentIdx < furthestIdx ? navigateToIdx(currentIdx + 1) : setFinished(true)
+                }
+                className="btn-3d flex-1 rounded-2xl bg-indigo-600 border-b-4 border-indigo-800 text-white py-3.5 font-black text-base flex items-center justify-center gap-2 hover:bg-indigo-500"
+              >
+                <span>
+                  {currentIdx + 1 === furthestIdx
+                    ? `ادامه از سوال فعلی (${furthestIdx + 1})`
+                    : currentIdx < furthestIdx
+                      ? 'سوال بعدی'
+                      : 'بازگشت به نتیجه جلسه'}
+                </span>
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            </div>
           ) : (
             <button
               type="button"
