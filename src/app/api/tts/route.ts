@@ -16,13 +16,13 @@ const MAX_URL_CACHE = 1000;
 const inflightSynthesis = new Map<string, Promise<{ wav: Uint8Array; blobUrl: string | null }>>();
 
 function hashText(normalizedText: string): string {
-  // Normalize case & edge punctuation so "Obwohl", "obwohl", and "obwohl." share 1 single cached Blob file!
+  // v3: Human Neural German voices (Seraphina + Conrad) stored as MP3 on Frankfurt Vercel Blob
   const canonical = normalizedText
     .toLowerCase()
     .replace(/^[.,!?;:„“"'«»()[\]]+|[.,!?;:„“"'«»()[\]]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return crypto.createHash('sha256').update(`v2:${canonical}`).digest('hex').slice(0, 32);
+  return crypto.createHash('sha256').update(`v3:${canonical}`).digest('hex').slice(0, 32);
 }
 
 function rememberBlobUrl(hash: string, url: string) {
@@ -142,7 +142,7 @@ async function synthesizeAndStoreGlobally(
 
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const blob = await put(`tts/v2/${textHash}.wav`, Buffer.from(wav), {
+      const blob = await put(`tts/v3/${textHash}.wav`, Buffer.from(wav), {
         access: 'public',
         addRandomSuffix: false,
         allowOverwrite: true,

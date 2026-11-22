@@ -1,30 +1,21 @@
 'use client';
 
 /**
- * Bulletproof German Speech Engine for Desktop, Android & iOS Safari/PWA.
+ * Studio-Quality Human German Speech Engine for iOS, Android, PWA & Desktop.
  *
- * - iOS / iPadOS (Safari & Home Screen PWA): Uses real HTML5 <audio> via /api/tts
- *   (cached permanently in CacheStorage so replays are 0ms!) because iOS WebKit
- *   mutes speechSynthesis in Silent Mode and frequently breaks speechSynthesis in PWAs.
- *   Automatically falls back to Web Speech API if /api/tts is unavailable.
- * - Android & Desktop: Uses mobile-hardened native Web Speech API (instant 0ms)
- *   whenever a German voice is installed, with an automatic 750ms watchdog fallback
- *   to /api/tts <audio> if Web Speech fails, stays silent, or lacks a German voice.
+ * - Primary: Plays pre-warmed Human Neural German MP3s (Seraphina & Conrad) from our
+ *   Frankfurt Vercel Blob CDN (/api/tts?v=3&text=...) and caches them permanently in
+ *   browser CacheStorage so repeat plays are instant (0ms) and work even in iPhone Silent Mode / PWA!
+ * - Automatic Fallback: If offline or /api/tts is unavailable, falls back seamlessly to
+ *   mobile-hardened native Web Speech API (de-DE).
  */
 
 export type SpeechPlayState = 'loading' | 'playing' | 'idle';
 
 let activeStateCb: ((state: SpeechPlayState) => void) | null = null;
-
-function setPlayState(cb: ((state: SpeechPlayState) => void) | undefined, state: SpeechPlayState) {
-  if (cb) cb(state);
-}
 let cachedGermanVoice: SpeechSynthesisVoice | null = null;
 let voicesInitialized = false;
-let voicesLoaded = false;
 let activeUtterance: SpeechSynthesisUtterance | null = null;
-let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-let nativeSpeechBroken = false;
 let speakSeq = 0;
 
 let sharedAudio: HTMLAudioElement | null = null;
@@ -35,29 +26,16 @@ let activeObjectUrl: string | null = null;
 const SILENT_WAV_DATA_URI =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
-const TTS_CACHE_NAME = 'deutschkart-tts-v2';
+const TTS_CACHE_NAME = 'deutschkart-tts-v3';
 
-function isIOSDevice(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent || '';
-  if (/iPad|iPhone|iPod/i.test(ua)) return true;
-  // iPadOS 13+ reports MacIntel with touch points
-  if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true;
-  return false;
-}
-
-function isStandalonePWA(): boolean {
-  if (typeof window === 'undefined') return false;
-  const nav = window.navigator as Navigator & { standalone?: boolean };
-  return Boolean(nav.standalone) || window.matchMedia?.('(display-mode: standalone)').matches;
+function setPlayState(cb: ((state: SpeechPlayState) => void) | undefined, state: SpeechPlayState) {
+  if (cb) cb(state);
 }
 
 function initVoicesListener() {
   if (voicesInitialized || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
   voicesInitialized = true;
   const refresh = () => {
-    const list = window.speechSynthesis.getVoices();
-    if (list.length > 0) voicesLoaded = true;
     cachedGermanVoice = pickBestLocalGermanVoice();
   };
   refresh();
@@ -88,7 +66,6 @@ function primeMobileAudio() {
   if (!sharedAudio) {
     sharedAudio = new Audio();
     sharedAudio.preload = 'auto';
-    // Prevent fullscreen hijack on older iOS
     sharedAudio.setAttribute('playsinline', 'true');
   }
   if (!audioUnlocked) {
@@ -99,7 +76,7 @@ function primeMobileAudio() {
         p.then(() => {
           audioUnlocked = true;
         }).catch(() => {
-          // Will unlock on next tap
+          // Will unlock on next gesture
         });
       }
     } catch {
@@ -118,7 +95,7 @@ async function playServerTts(
   const cleanText = text.trim();
   if (!cleanText) return false;
 
-  const url = `/api/tts?v=2&text=${encodeURIComponent(cleanText)}`;
+  const url = `/api/tts?v=3&text=${encodeURIComponent(cleanText)}`;
 
   try {
     let blob: Blob | null = null;
@@ -144,10 +121,9 @@ async function playServerTts(
       }
       blob = await res.blob();
       if ('caches' in window && blob.size > 44) {
-        // Store a clean non-redirected Response in CacheStorage for 100% iOS Safari / PWA reliability
         const cleanResp = new Response(blob, {
           status: 200,
-          headers: { 'Content-Type': res.headers.get('content-type') || blob.type || 'audio/mp4' },
+          headers: { 'Content-Type': res.headers.get('content-type') || blob.type || 'audio/mpeg' },
         });
         caches
           .open(TTS_CACHE_NAME)
@@ -192,24 +168,21 @@ function speakWithWebSpeech(
   cleanText: string,
   rate: number,
   mySeq: number,
-  allowServerFallback: boolean,
   onState?: (state: SpeechPlayState) => void
 ) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-    if (allowServerFallback) void playServerTts(cleanText, rate, mySeq, onState);
+  if (
+    typeof window === 'undefined' ||
+    !('speechSynthesis' in window) ||
+    typeof SpeechSynthesisUtterance === 'undefined'
+  ) {
+    setPlayState(onState, 'idle');
     return;
   }
 
   try {
     const synth = window.speechSynthesis;
-
-    // Only cancel when actually speaking/pending (calling cancel() when idle triggers iOS Safari silence bug)
-    if (synth.speaking || synth.pending) {
-      synth.cancel();
-    }
-    if (synth.paused) {
-      synth.resume();
-    }
+    if (synth.speaking || synth.pending) synth.cancel();
+    if (synth.paused) synth.resume();
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = 'de-DE';
@@ -223,70 +196,28 @@ function speakWithWebSpeech(
     }
 
     activeUtterance = utterance;
-    let started = false;
 
     utterance.onstart = () => {
-      started = true;
       if (mySeq === speakSeq) setPlayState(onState, 'playing');
-      if (watchdogTimer) {
-        clearTimeout(watchdogTimer);
-        watchdogTimer = null;
-      }
     };
-
     utterance.onend = () => {
       if (activeUtterance === utterance) activeUtterance = null;
       if (mySeq === speakSeq) setPlayState(onState, 'idle');
     };
-
-    utterance.onerror = (ev) => {
+    utterance.onerror = () => {
       if (activeUtterance === utterance) activeUtterance = null;
-      if (watchdogTimer) {
-        clearTimeout(watchdogTimer);
-        watchdogTimer = null;
-      }
-      if (ev.error === 'canceled' || ev.error === 'interrupted') return;
-      if (allowServerFallback && mySeq === speakSeq) {
-        nativeSpeechBroken = true;
-        void playServerTts(cleanText, rate, mySeq, onState);
-      } else if (mySeq === speakSeq) {
-        setPlayState(onState, 'idle');
-      }
+      if (mySeq === speakSeq) setPlayState(onState, 'idle');
     };
 
     synth.speak(utterance);
-
-    if (allowServerFallback) {
-      watchdogTimer = setTimeout(() => {
-        watchdogTimer = null;
-        if (!started && mySeq === speakSeq) {
-          nativeSpeechBroken = true;
-          try {
-            synth.cancel();
-          } catch {
-            // ignore
-          }
-          void playServerTts(cleanText, rate, mySeq, onState);
-        }
-      }, 750);
-    }
   } catch {
-    if (allowServerFallback) {
-      nativeSpeechBroken = true;
-      void playServerTts(cleanText, rate, mySeq, onState);
-    } else {
-      setPlayState(onState, 'idle');
-    }
+    setPlayState(onState, 'idle');
   }
 }
 
 export function stopGermanAudio() {
   if (typeof window === 'undefined') return;
   speakSeq += 1;
-  if (watchdogTimer) {
-    clearTimeout(watchdogTimer);
-    watchdogTimer = null;
-  }
   if (sharedAudio && !sharedAudio.paused) {
     try {
       sharedAudio.pause();
@@ -311,7 +242,7 @@ export function stopGermanAudio() {
 
 export function speakGerman(
   text: string,
-  rate = 0.92,
+  rate = 0.96,
   onState?: (state: SpeechPlayState) => void
 ) {
   if (typeof window === 'undefined') return;
@@ -327,11 +258,6 @@ export function speakGerman(
   speakSeq += 1;
   const mySeq = speakSeq;
 
-  if (watchdogTimer) {
-    clearTimeout(watchdogTimer);
-    watchdogTimer = null;
-  }
-
   if (sharedAudio && !sharedAudio.paused) {
     try {
       sharedAudio.pause();
@@ -340,24 +266,16 @@ export function speakGerman(
     }
   }
 
-  // Always unlock HTML5 audio synchronously inside user gesture (required on iOS Safari & PWA)
+  // Unlock HTML5 audio synchronously inside user gesture (critical for iOS Safari & PWA)
   primeMobileAudio();
 
   const hasSpeech = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
-  const missingGermanVoice = voicesLoaded && !pickBestLocalGermanVoice();
 
-  // On iOS / iPadOS (or standalone PWA, or devices without a German voice pack),
-  // play real HTML5 <audio> directly via /api/tts (cached in CacheStorage) so sound ALWAYS works
-  // even with iPhone Silent switch on or broken PWA speechSynthesis!
-  if (isIOSDevice() || isStandalonePWA() || !hasSpeech || nativeSpeechBroken || missingGermanVoice) {
-    void playServerTts(cleanText, rate, mySeq, onState).then((ok) => {
-      if (!ok && mySeq === speakSeq && hasSpeech) {
-        speakWithWebSpeech(cleanText, rate, mySeq, false, onState);
-      }
-    });
-    return;
-  }
-
-  // On Desktop & Android browser with German voice: instant 0ms native speech + 750ms watchdog fallback
-  speakWithWebSpeech(cleanText, rate, mySeq, true, onState);
+  // Use our studio-quality Human Neural German voices (Seraphina & Conrad) on ALL devices!
+  // Falls back to native Web Speech automatically if offline or unavailable.
+  void playServerTts(cleanText, rate, mySeq, onState).then((ok) => {
+    if (!ok && mySeq === speakSeq && hasSpeech) {
+      speakWithWebSpeech(cleanText, rate, mySeq, onState);
+    }
+  });
 }
