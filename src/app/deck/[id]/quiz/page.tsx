@@ -4,6 +4,8 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { QuizPlayer, type QuizMode } from '@/components/QuizPlayer';
+import { useApp } from '@/components/AppProvider';
+import { getStageFromBox, STAGE_META, STAGE_ORDER, type MasteryStage } from '@/lib/leitner';
 import type { WordCard } from '@/lib/types';
 
 function QuizContent() {
@@ -22,6 +24,11 @@ function QuizContent() {
   const mode: QuizMode = validModes.includes(rawMode as QuizMode)
     ? (rawMode as QuizMode)
     : 'meaning-de-fa';
+  const rawStage = searchParams.get('stage');
+  const stageFilter: MasteryStage | null = STAGE_ORDER.includes(rawStage as MasteryStage)
+    ? (rawStage as MasteryStage)
+    : null;
+  const { user, guestProgress } = useApp();
 
   const [title, setTitle] = useState('');
   const [cards, setCards] = useState<WordCard[]>([]);
@@ -33,10 +40,22 @@ function QuizContent() {
       .then((r) => r.json())
       .then((data) => {
         if (data.deck) setTitle(data.deck.title);
-        if (Array.isArray(data.cards)) setCards(data.cards);
+        if (Array.isArray(data.cards)) {
+          const allCards = data.cards as WordCard[];
+          if (stageFilter) {
+            const matched = allCards.filter((c) => {
+              const box = user ? c.progress?.leitnerBox ?? 0 : guestProgress[c.id]?.leitnerBox ?? 0;
+              return getStageFromBox(box) === stageFilter;
+            });
+            setCards(matched);
+          } else {
+            setCards(allCards);
+          }
+        }
       })
       .finally(() => setLoading(false));
-  }, [deckId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deckId, stageFilter, user]);
 
   if (loading) {
     return (
@@ -48,7 +67,7 @@ function QuizContent() {
 
   return (
     <QuizPlayer
-      deckTitle={title}
+      deckTitle={stageFilter ? `${title} · ${STAGE_META[stageFilter].label}` : title}
       cards={cards}
       mode={mode}
       backHref={`/deck/${deckId}`}

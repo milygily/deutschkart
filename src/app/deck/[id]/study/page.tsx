@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { SwipeDeckPlayer } from '@/components/SwipeDeckPlayer';
 import { useApp } from '@/components/AppProvider';
-import { isCardDue } from '@/lib/leitner';
+import { getStageFromBox, isCardDue, STAGE_META, STAGE_ORDER, type MasteryStage } from '@/lib/leitner';
 import type { WordCard } from '@/lib/types';
 
 function StudyContent() {
@@ -13,6 +13,10 @@ function StudyContent() {
   const searchParams = useSearchParams();
   const deckId = Number(params.id);
   const onlyDue = searchParams.get('onlyDue') === '1';
+  const rawStage = searchParams.get('stage');
+  const stageFilter: MasteryStage | null = STAGE_ORDER.includes(rawStage as MasteryStage)
+    ? (rawStage as MasteryStage)
+    : null;
   const { user, guestProgress } = useApp();
 
   const [title, setTitle] = useState('');
@@ -26,21 +30,28 @@ function StudyContent() {
       .then((data) => {
         if (data.deck) setTitle(data.deck.title);
         if (Array.isArray(data.cards)) {
-          if (onlyDue) {
-            const dueOnly = (data.cards as WordCard[]).filter((c) => {
+          const allCards = data.cards as WordCard[];
+          if (stageFilter) {
+            const matched = allCards.filter((c) => {
+              const box = user ? c.progress?.leitnerBox ?? 0 : guestProgress[c.id]?.leitnerBox ?? 0;
+              return getStageFromBox(box) === stageFilter;
+            });
+            setCards(matched);
+          } else if (onlyDue) {
+            const dueOnly = allCards.filter((c) => {
               const box = user ? c.progress?.leitnerBox ?? 0 : guestProgress[c.id]?.leitnerBox ?? 0;
               const dueAt = user ? c.progress?.dueAt : guestProgress[c.id]?.dueAt;
               return isCardDue(box, dueAt);
             });
-            setCards(dueOnly.length > 0 ? dueOnly : data.cards);
+            setCards(dueOnly.length > 0 ? dueOnly : allCards);
           } else {
-            setCards(data.cards);
+            setCards(allCards);
           }
         }
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckId, onlyDue, user]);
+  }, [deckId, onlyDue, stageFilter, user]);
 
   if (loading) {
     return (
@@ -53,7 +64,13 @@ function StudyContent() {
   return (
     <SwipeDeckPlayer
       deckId={deckId}
-      deckTitle={onlyDue ? `${title} · مرور امروز 🔥` : title}
+      deckTitle={
+        stageFilter
+          ? `${title} · ${STAGE_META[stageFilter].label}`
+          : onlyDue
+            ? `${title} · مرور امروز 🔥`
+            : title
+      }
       initialCards={cards}
       backHref={`/deck/${deckId}`}
       quizHref={`/deck/${deckId}/quiz?mode=mix`}

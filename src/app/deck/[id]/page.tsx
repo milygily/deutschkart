@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -30,6 +30,7 @@ import {
   isCardDue,
   STAGE_META,
   STAGE_ORDER,
+  type MasteryStage,
 } from '@/lib/leitner';
 import { speakGerman } from '@/lib/speech';
 
@@ -62,8 +63,10 @@ export default function DeckDetailPage() {
   const [deck, setDeck] = useState<DeckDetail | null>(null);
   const [cards, setCards] = useState<WordCard[]>([]);
   const [savedBrowseIndex, setSavedBrowseIndex] = useState(0);
+  const [stageFilter, setStageFilter] = useState<MasteryStage | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const wordListRef = useRef<HTMLElement>(null);
 
   // Deck edit state
   const [editingDeck, setEditingDeck] = useState(false);
@@ -326,6 +329,21 @@ export default function DeckDetailPage() {
     if (isCardDue(box, dueAt)) dueCount++;
   }
 
+  const filteredCards = stageFilter
+    ? cards.filter((c) => getStageFromBox(getEffectiveBoxAndDue(c).box) === stageFilter)
+    : cards;
+
+  function handleToggleStageFilter(stage: MasteryStage) {
+    if (stageFilter === stage) {
+      setStageFilter(null);
+      return;
+    }
+    setStageFilter(stage);
+    setTimeout(() => {
+      wordListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  }
+
   return (
     <div className="min-h-screen pb-24">
       <Navbar />
@@ -493,7 +511,7 @@ export default function DeckDetailPage() {
                 </div>
               )}
 
-              {/* 5-Stage Leitner Mastery Breakdown */}
+              {/* 5-Stage Leitner Mastery Breakdown (Interactive Filters) */}
               {cards.length > 0 && (
                 <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-4 space-y-3">
                   {/* Segmented Colorful Bar */}
@@ -503,34 +521,53 @@ export default function DeckDetailPage() {
                       if (count === 0) return null;
                       const pct = (count / cards.length) * 100;
                       return (
-                        <div
+                        <button
                           key={stage}
-                          className={`h-full transition-all duration-300 ${STAGE_META[stage].barClass}`}
+                          type="button"
+                          onClick={() => handleToggleStageFilter(stage)}
+                          className={`h-full transition-all duration-300 cursor-pointer hover:brightness-95 ${STAGE_META[stage].barClass}`}
                           style={{ width: `${pct}%` }}
-                          title={`${STAGE_META[stage].label}: ${count}`}
+                          title={`نمایش کلمات «${STAGE_META[stage].label}» (${count})`}
                         />
                       );
                     })}
                   </div>
 
-                  {/* Stage Counters */}
+                  {/* Clickable Stage Filter Pills */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     {STAGE_ORDER.map((stage) => {
                       const meta = STAGE_META[stage];
                       const count = stageCounts[stage];
+                      const isActive = stageFilter === stage;
                       return (
-                        <span
+                        <button
                           key={stage}
-                          className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-xs font-extrabold ${meta.pillClass} ${
-                            count === 0 ? 'opacity-50' : ''
+                          type="button"
+                          onClick={() => handleToggleStageFilter(stage)}
+                          className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-xs font-extrabold transition cursor-pointer ${meta.pillClass} ${
+                            isActive
+                              ? 'ring-2 ring-offset-1 ring-slate-700 scale-105 shadow-xs'
+                              : count === 0
+                                ? 'opacity-50 hover:opacity-80'
+                                : 'hover:scale-105 hover:shadow-xs'
                           }`}
                         >
                           <span className={`w-2 h-2 rounded-full ${meta.dotClass}`} />
                           <span>{count}</span>
                           <span>{meta.label}</span>
-                        </span>
+                        </button>
                       );
                     })}
+                    {stageFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setStageFilter(null)}
+                        className="inline-flex items-center gap-1 rounded-xl bg-slate-800 text-white px-2.5 py-1 text-xs font-extrabold hover:bg-slate-700"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        نمایش همه
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -620,11 +657,25 @@ export default function DeckDetailPage() {
             </section>
 
             {/* Word List + Add Word Section */}
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2 px-1">
-                <h2 className="text-base font-black text-slate-700">
-                  لیست کلمات این دسته ({cards.length})
-                </h2>
+            <section ref={wordListRef} className="space-y-3 scroll-mt-20">
+              <div className="flex items-center justify-between gap-2 px-1 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-black text-slate-700">
+                    {stageFilter
+                      ? `کلمات «${STAGE_META[stageFilter].label}» (${filteredCards.length} از ${cards.length})`
+                      : `لیست کلمات این دسته (${cards.length})`}
+                  </h2>
+                  {stageFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setStageFilter(null)}
+                      className="inline-flex items-center gap-1 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 px-2.5 py-1 text-xs font-extrabold"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      پاک کردن فیلتر
+                    </button>
+                  )}
+                </div>
 
                 {canEdit && (
                   <button
@@ -639,6 +690,35 @@ export default function DeckDetailPage() {
                   </button>
                 )}
               </div>
+
+              {/* Quick Actions for the Active Stage Filter */}
+              {stageFilter && filteredCards.length > 0 && (
+                <div className="rounded-2xl bg-white border-2 border-slate-200 p-3 flex flex-wrap items-center gap-2 shadow-xs">
+                  <span className="text-xs font-extrabold text-slate-500 ml-auto">
+                    تمرین فقط همین {filteredCards.length} کلمه:
+                  </span>
+                  <Link
+                    href={`/deck/${deck.id}/browse?stage=${stageFilter}`}
+                    className="btn-3d rounded-xl bg-teal-500 border-b-2 border-teal-700 text-white px-3 py-1.5 text-xs font-extrabold"
+                  >
+                    📖 مرور آزاد
+                  </Link>
+                  <Link
+                    href={`/deck/${deck.id}/study?stage=${stageFilter}`}
+                    className="btn-3d rounded-xl bg-emerald-500 border-b-2 border-emerald-700 text-white px-3 py-1.5 text-xs font-extrabold"
+                  >
+                    🃏 سوایپ
+                  </Link>
+                  {filteredCards.length >= 2 && (
+                    <Link
+                      href={`/deck/${deck.id}/quiz?mode=meaning-mix&stage=${stageFilter}`}
+                      className="btn-3d rounded-xl bg-sky-500 border-b-2 border-sky-700 text-white px-3 py-1.5 text-xs font-extrabold"
+                    >
+                      🎯 آزمون
+                    </Link>
+                  )}
+                </div>
+              )}
 
               {/* Add New Word(s) Collapsible Panel */}
               {canEdit && addingOpen && (
@@ -794,7 +874,21 @@ export default function DeckDetailPage() {
               )}
 
               <div className="space-y-2.5">
-                {cards.map((card) => {
+                {filteredCards.length === 0 && stageFilter ? (
+                  <div className="rounded-2xl bg-white border-2 border-dashed border-slate-200 p-8 text-center space-y-2">
+                    <p className="text-sm font-extrabold text-slate-500">
+                      فعلاً هیچ کلمه‌ای در مرحله «{STAGE_META[stageFilter].label}» نیست.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setStageFilter(null)}
+                      className="text-xs font-black text-emerald-600 hover:underline"
+                    >
+                      نمایش همه کلمات دسته
+                    </button>
+                  </div>
+                ) : null}
+                {filteredCards.map((card) => {
                   const art = getArticleStyle(card.article);
                   const isStarred = starredIds.has(card.id);
                   const { box, dueAt } = getEffectiveBoxAndDue(card);
