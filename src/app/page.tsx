@@ -8,12 +8,12 @@ import { useApp } from '@/components/AppProvider';
 import type { DeckSummary } from '@/lib/types';
 
 const LEVEL_TABS = [
+  { key: 'MINE', label: 'دسته‌های من ✨' },
   { key: 'ALL', label: 'همه سطوح' },
   { key: 'A1', label: 'A1 مقدماتی' },
   { key: 'A2', label: 'A2 پایه' },
   { key: 'B1', label: 'B1 میانی' },
   { key: 'B2', label: 'B2 پیشرفته' },
-  { key: 'MINE', label: 'دسته‌های من ✨' },
 ];
 
 const COLOR_STYLES: Record<
@@ -57,6 +57,7 @@ export default function HomePage() {
   const [decks, setDecks] = useState<DeckSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('ALL');
+  const [didAutoSelectTab, setDidAutoSelectTab] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -65,7 +66,20 @@ export default function HomePage() {
       .then((r) => r.json())
       .then((data) => {
         if (active && Array.isArray(data.decks)) {
-          setDecks(data.decks);
+          // Put personal decks first (newest first), then system decks
+          const sorted = [...data.decks].sort((a, b) => {
+            if (a.isSystem !== b.isSystem) return a.isSystem ? 1 : -1;
+            if (!a.isSystem && !b.isSystem) return b.id - a.id;
+            return a.id - b.id;
+          });
+          setDecks(sorted);
+          const hasMine = sorted.some((d) => !d.isSystem);
+          if (!didAutoSelectTab) {
+            setActiveTab(hasMine ? 'MINE' : 'ALL');
+            setDidAutoSelectTab(true);
+          } else if (hasMine && activeTab === 'ALL') {
+            setActiveTab('MINE');
+          }
         }
       })
       .finally(() => {
@@ -74,6 +88,7 @@ export default function HomePage() {
     return () => {
       active = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const filteredDecks = decks.filter((d) => {

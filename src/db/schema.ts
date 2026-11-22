@@ -61,6 +61,14 @@ export const deckCards = pgTable(
       .notNull()
       .references(() => globalWords.id, { onDelete: 'cascade' }),
     position: integer('position').notNull().default(0),
+    customWord: text('custom_word'),
+    customArticle: text('custom_article'),
+    customPlural: text('custom_plural'),
+    customVerbForms: text('custom_verb_forms'),
+    customPersianMeaning: text('custom_persian_meaning'),
+    customEnglishMeaning: text('custom_english_meaning'),
+    customExampleDe: text('custom_example_de'),
+    customExampleFa: text('custom_example_fa'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [uniqueIndex('deck_word_unique_idx').on(table.deckId, table.wordId)]

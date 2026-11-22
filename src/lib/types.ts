@@ -1,5 +1,6 @@
 export interface WordCard {
   id: number;
+  deckCardId?: number;
   word: string;
   article: 'der' | 'die' | 'das' | null;
   plural: string | null;
