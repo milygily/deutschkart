@@ -160,9 +160,9 @@ export function BrowseDeckPlayer({
   const isStarred = starredIds.has(currentCard.id);
   const progressPct = Math.round(((index + 1) / cards.length) * 100);
 
-  // Carousel sizing: card takes ~78% width (max 390px) so neighbors clearly peek on left & right
-  const cardWidth = Math.min(390, Math.max(260, Math.round(containerWidth * 0.78)));
-  const cardGap = 16;
+  // Carousel sizing: hero center card takes ~85% width (max 460px), side wagons peek cleanly
+  const cardWidth = Math.min(460, Math.max(300, Math.round(containerWidth * 0.85)));
+  const cardGap = 14;
   const stepWidth = cardWidth + cardGap;
 
   // Render a 5-wagon window around current index for smooth entry/exit transitions
@@ -172,7 +172,7 @@ export function BrowseDeckPlayer({
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-3 sm:px-4 pt-4 pb-24 flex flex-col min-h-[calc(100vh-5rem)]">
+    <div className="max-w-3xl mx-auto px-2 sm:px-4 pt-3 pb-24 flex flex-col min-h-[calc(100vh-5rem)]">
       {/* Top Progress Bar */}
       <div className="max-w-lg w-full mx-auto flex items-center gap-3 mb-3">
         <Link
@@ -229,7 +229,7 @@ export function BrowseDeckPlayer({
       <div
         ref={trackRef}
         dir="ltr"
-        className="relative flex-1 w-full overflow-hidden flex items-center justify-center min-h-[455px] select-none"
+        className="relative flex-1 w-full overflow-hidden flex items-center justify-center min-h-[485px] select-none"
       >
         <motion.div
           style={{ x: dragX }}
@@ -243,7 +243,7 @@ export function BrowseDeckPlayer({
             isDraggingRef.current = true;
           }}
           onDragEnd={handleDragEnd}
-          className="relative w-full h-[445px] cursor-grab active:cursor-grabbing touch-pan-y"
+          className="relative w-full h-[475px] cursor-grab active:cursor-grabbing touch-pan-y"
         >
           {windowIndices.map((i) => {
             const card = cards[i];
@@ -257,8 +257,8 @@ export function BrowseDeckPlayer({
                 initial={false}
                 animate={{
                   x: offset * stepWidth,
-                  scale: isCenter ? 1 : 0.9,
-                  opacity: isCenter ? 1 : Math.abs(offset) === 1 ? 0.58 : 0,
+                  scale: isCenter ? 1 : 0.82,
+                  opacity: isCenter ? 1 : Math.abs(offset) === 1 ? 0.45 : 0,
                 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 30 }}
                 style={{
@@ -279,7 +279,7 @@ export function BrowseDeckPlayer({
                     setFlipped((f) => !f);
                   }
                 }}
-                className="absolute top-0 h-[440px] perspective-1200"
+                className="absolute top-0 h-[470px] perspective-1200"
               >
                 <div
                   className={`relative w-full h-full duration-500 preserve-3d transition-transform ${
@@ -341,16 +341,16 @@ export function BrowseDeckPlayer({
                           {card.article}
                         </span>
                       )}
-                      <h1 className="font-de text-3xl sm:text-4xl font-extrabold text-slate-800 tracking-tight break-words max-w-full">
+                      <h1 className="font-de text-4xl sm:text-5xl font-extrabold text-slate-800 tracking-tight break-words max-w-full">
                         {card.word}
                       </h1>
                       {card.plural && (
-                        <p className="font-de text-sm font-bold text-slate-400">
+                        <p className="font-de text-base font-bold text-slate-400">
                           Pl: {card.plural}
                         </p>
                       )}
                       {card.verbForms && (
-                        <p className="font-de text-xs font-bold text-violet-600 bg-violet-50 border border-violet-200 px-3 py-1 rounded-xl">
+                        <p className="font-de text-sm font-bold text-violet-600 bg-violet-50 border border-violet-200 px-3 py-1 rounded-xl">
                           {card.verbForms}
                         </p>
                       )}
@@ -359,11 +359,11 @@ export function BrowseDeckPlayer({
                     {/* German Example Sentence right on FRONT */}
                     <div className="px-5 pb-4 space-y-2.5">
                       {card.exampleDe && (
-                        <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-3.5 flex items-center justify-between gap-2.5" dir="ltr">
+                        <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-4 sm:p-5 flex items-center justify-between gap-3" dir="ltr">
                           <InteractiveSentence
                             sentence={card.exampleDe}
                             targetCard={card}
-                            className="font-de text-sm sm:text-base font-extrabold text-slate-700 leading-relaxed text-left flex-1"
+                            className="font-de text-lg sm:text-xl font-extrabold text-slate-800 leading-relaxed text-left flex-1"
                           />
                           <button
                             type="button"
@@ -373,11 +373,11 @@ export function BrowseDeckPlayer({
                               e.stopPropagation();
                               speakGerman(card.exampleDe);
                             }}
-                            className="shrink-0 w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
+                            className="shrink-0 w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
                             aria-label="پخش جمله مثال"
                             title="شنیدن جمله مثال"
                           >
-                            <Volume2 className="w-4 h-4" />
+                            <Volume2 className="w-5 h-5" />
                           </button>
                         </div>
                       )}
@@ -442,13 +442,13 @@ export function BrowseDeckPlayer({
                     {/* Both German Example & Persian Translation side-by-side on BACK */}
                     <div className="px-5 pb-5 space-y-2" dir="rtl">
                       {(card.exampleDe || card.exampleFa) && (
-                        <div className="rounded-2xl bg-white border-2 border-slate-100 p-3.5 space-y-2 shadow-xs">
+                        <div className="rounded-2xl bg-white border-2 border-slate-100 p-4 sm:p-5 space-y-2.5 shadow-xs">
                           {card.exampleDe && (
-                            <div className="flex items-start justify-between gap-2" dir="ltr">
+                            <div className="flex items-start justify-between gap-2.5" dir="ltr">
                               <InteractiveSentence
                                 sentence={card.exampleDe}
                                 targetCard={card}
-                                className="font-de text-sm sm:text-base font-extrabold text-slate-800 leading-relaxed text-left flex-1"
+                                className="font-de text-lg sm:text-xl font-extrabold text-slate-800 leading-relaxed text-left flex-1"
                               />
                               <button
                                 type="button"
@@ -458,16 +458,16 @@ export function BrowseDeckPlayer({
                                   e.stopPropagation();
                                   speakGerman(card.exampleDe);
                                 }}
-                                className="shrink-0 w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
+                                className="shrink-0 w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
                                 aria-label="پخش جمله مثال"
                                 title="شنیدن جمله مثال"
                               >
-                                <Volume2 className="w-4 h-4" />
+                                <Volume2 className="w-5 h-5" />
                               </button>
                             </div>
                           )}
                           {card.exampleFa && (
-                            <p className="text-sm sm:text-base font-bold text-slate-600 leading-relaxed text-right border-t border-slate-100 pt-2">
+                            <p className="text-base sm:text-lg font-bold text-slate-600 leading-relaxed text-right border-t border-slate-100 pt-2.5">
                               {card.exampleFa}
                             </p>
                           )}

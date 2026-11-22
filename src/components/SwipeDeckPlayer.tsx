@@ -283,9 +283,9 @@ export function SwipeDeckPlayer({
       </div>
 
       {/* Card Stack Container */}
-      <div className="relative flex-1 flex items-center justify-center min-h-[450px] select-none">
+      <div className="relative flex-1 flex items-center justify-center min-h-[480px] select-none">
         {nextCard && (
-          <div className="absolute w-full max-w-md h-[430px] rounded-[2rem] bg-white border-2 border-slate-200 scale-95 translate-y-3 opacity-60 pointer-events-none shadow-sm" />
+          <div className="absolute w-full max-w-md h-[460px] rounded-[2rem] bg-white border-2 border-slate-200 scale-95 translate-y-3 opacity-60 pointer-events-none shadow-sm" />
         )}
 
         <motion.div
@@ -304,7 +304,7 @@ export function SwipeDeckPlayer({
             if (target?.closest('button, [data-no-flip="true"]')) return;
             setFlipped((f) => !f);
           }}
-          className="relative w-full max-w-md h-[440px] cursor-grab active:cursor-grabbing perspective-1200 touch-pan-y"
+          className="relative w-full max-w-md h-[470px] cursor-grab active:cursor-grabbing perspective-1200 touch-pan-y"
         >
           {/* Swipe Overlays */}
           <motion.div
@@ -382,16 +382,16 @@ export function SwipeDeckPlayer({
                     {currentCard.article}
                   </span>
                 )}
-                <h1 className="font-de text-3xl sm:text-4xl font-extrabold text-slate-800 tracking-tight break-words max-w-full">
+                <h1 className="font-de text-4xl sm:text-5xl font-extrabold text-slate-800 tracking-tight break-words max-w-full">
                   {currentCard.word}
                 </h1>
                 {currentCard.plural && (
-                  <p className="font-de text-sm font-bold text-slate-400">
+                  <p className="font-de text-base font-bold text-slate-400">
                     Pl: {currentCard.plural}
                   </p>
                 )}
                 {currentCard.verbForms && (
-                  <p className="font-de text-xs font-bold text-violet-600 bg-violet-50 border border-violet-200 px-3 py-1 rounded-xl">
+                  <p className="font-de text-sm font-bold text-violet-600 bg-violet-50 border border-violet-200 px-3 py-1 rounded-xl">
                     {currentCard.verbForms}
                   </p>
                 )}
@@ -400,13 +400,13 @@ export function SwipeDeckPlayer({
               <div className="px-5 pb-4 space-y-2.5">
                 {currentCard.exampleDe && (
                   <div
-                    className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-3.5 flex items-center justify-between gap-2.5"
+                    className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-4 sm:p-5 flex items-center justify-between gap-3"
                     dir="ltr"
                   >
                     <InteractiveSentence
                       sentence={currentCard.exampleDe}
                       targetCard={currentCard}
-                      className="font-de text-sm sm:text-base font-extrabold text-slate-700 leading-relaxed text-left flex-1"
+                      className="font-de text-lg sm:text-xl font-extrabold text-slate-800 leading-relaxed text-left flex-1"
                     />
                     <button
                       type="button"
@@ -416,11 +416,11 @@ export function SwipeDeckPlayer({
                         e.stopPropagation();
                         speakGerman(currentCard.exampleDe);
                       }}
-                      className="shrink-0 w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
+                      className="shrink-0 w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
                       aria-label="پخش جمله مثال"
                       title="شنیدن جمله مثال"
                     >
-                      <Volume2 className="w-4 h-4" />
+                      <Volume2 className="w-5 h-5" />
                     </button>
                   </div>
                 )}
@@ -482,13 +482,13 @@ export function SwipeDeckPlayer({
 
               <div className="px-5 pb-5">
                 {(currentCard.exampleDe || currentCard.exampleFa) && (
-                  <div className="rounded-2xl bg-white border-2 border-slate-100 p-3.5 space-y-2 shadow-xs">
+                  <div className="rounded-2xl bg-white border-2 border-slate-100 p-4 sm:p-5 space-y-2.5 shadow-xs">
                     {currentCard.exampleDe && (
-                      <div className="flex items-start justify-between gap-2" dir="ltr">
+                      <div className="flex items-start justify-between gap-2.5" dir="ltr">
                         <InteractiveSentence
                           sentence={currentCard.exampleDe}
                           targetCard={currentCard}
-                          className="font-de text-sm sm:text-base font-extrabold text-slate-800 leading-relaxed text-left flex-1"
+                          className="font-de text-lg sm:text-xl font-extrabold text-slate-800 leading-relaxed text-left flex-1"
                         />
                         <button
                           type="button"
@@ -498,16 +498,16 @@ export function SwipeDeckPlayer({
                             e.stopPropagation();
                             speakGerman(currentCard.exampleDe);
                           }}
-                          className="shrink-0 w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
+                          className="shrink-0 w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center"
                           aria-label="پخش جمله مثال"
                           title="شنیدن جمله مثال"
                         >
-                          <Volume2 className="w-4 h-4" />
+                          <Volume2 className="w-5 h-5" />
                         </button>
                       </div>
                     )}
                     {currentCard.exampleFa && (
-                      <p className="text-sm sm:text-base font-bold text-slate-600 leading-relaxed text-right border-t border-slate-100 pt-2">
+                      <p className="text-base sm:text-lg font-bold text-slate-600 leading-relaxed text-right border-t border-slate-100 pt-2.5">
                         {currentCard.exampleFa}
                       </p>
                     )}
