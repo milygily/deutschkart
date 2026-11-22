@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Sparkles, Star, Camera, Layers, ChevronLeft, BookOpen, Flame, BookOpenCheck, Map } from 'lucide-react';
+import { Sparkles, Star, Camera, Layers, ChevronLeft, BookOpen, Flame, BookOpenCheck, Map, Quote } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/AppProvider';
 import { STAGE_META, STAGE_ORDER } from '@/lib/leitner';
@@ -144,43 +144,62 @@ export default function HomePage() {
           <div className="pointer-events-none absolute right-1/3 -top-12 w-32 h-32 rounded-full bg-white/10" />
         </section>
 
-        {/* Quick Launch: B1 Grammar Club + B1 Learning Path */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        {/* Quick Launch: B1 Grammar Club + B1 Learning Path + Ausdrücke & Idioms */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           <Link
             href="/grammar"
-            className="btn-3d group rounded-3xl bg-gradient-to-l from-indigo-600 to-violet-600 border-b-4 border-indigo-800 p-5 text-white shadow-md hover:brightness-105 flex items-center justify-between gap-4"
+            className="btn-3d group rounded-3xl bg-gradient-to-l from-indigo-600 to-violet-600 border-b-4 border-indigo-800 p-5 text-white shadow-md hover:brightness-105 flex items-center justify-between gap-3"
           >
             <div className="space-y-1">
               <div className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-black">
                 <BookOpenCheck className="w-3.5 h-3.5" />
-                <span>جدید · ۱۶ مبحث کامل B1</span>
+                <span>۱۶ مبحث · ۸۲۰+ تمرین</span>
               </div>
-              <h2 className="text-lg font-black">باشگاه تخصصی گرامر B1 📐</h2>
+              <h2 className="text-base sm:text-lg font-black">باشگاه گرامر B1 📐</h2>
               <p className="text-xs font-bold text-indigo-100 leading-relaxed">
-                درسنامه فارسی + جدول + ۳۲۰ تمرین گیمیفای‌شده و ساخت تمرین بی‌نهایت با AI
+                درسنامه فارسی + جدول + تمرین‌های گیمیفای‌شده و AI
               </p>
             </div>
-            <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
-              <ChevronLeft className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+              <ChevronLeft className="w-5 h-5" />
             </div>
           </Link>
 
           <Link
             href="/learn"
-            className="btn-3d group rounded-3xl bg-gradient-to-l from-sky-500 to-blue-600 border-b-4 border-blue-800 p-5 text-white shadow-md hover:brightness-105 flex items-center justify-between gap-4"
+            className="btn-3d group rounded-3xl bg-gradient-to-l from-sky-500 to-blue-600 border-b-4 border-blue-800 p-5 text-white shadow-md hover:brightness-105 flex items-center justify-between gap-3"
           >
             <div className="space-y-1">
               <div className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-black">
                 <Map className="w-3.5 h-3.5" />
-                <span>جدید · ۸ فصل و ۳۲ درس</span>
+                <span>۸ فصل و ۳۲ درس</span>
               </div>
-              <h2 className="text-lg font-black">مسیر یادگیری دولینگویی B1 🗺️</h2>
+              <h2 className="text-base sm:text-lg font-black">مسیر دولینگویی B1 🗺️</h2>
               <p className="text-xs font-bold text-sky-100 leading-relaxed">
-                نقشه گام‌به‌گام جمله‌سازی، شنیداری، مکالمه، پادکست و هدف روزانه XP
+                جمله‌سازی، شنیداری، مکالمه، پادکست و XP روزانه
               </p>
             </div>
-            <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
-              <ChevronLeft className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+              <ChevronLeft className="w-5 h-5" />
+            </div>
+          </Link>
+
+          <Link
+            href="/idioms"
+            className="btn-3d group rounded-3xl bg-gradient-to-l from-amber-500 to-rose-500 border-b-4 border-rose-700 p-5 text-white shadow-md hover:brightness-105 flex items-center justify-between gap-3"
+          >
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-black">
+                <Quote className="w-3.5 h-3.5" />
+                <span>جدید · بخش فان و پولیش</span>
+              </div>
+              <h2 className="text-base sm:text-lg font-black">اصطلاحات و ضرب‌المثل‌ها ✨</h2>
+              <p className="text-xs font-bold text-amber-50 leading-relaxed">
+                Ausdrücke & Sprichwörter با معادل فارسی و بازی!
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+              <ChevronLeft className="w-5 h-5" />
             </div>
           </Link>
         </section>

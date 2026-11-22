@@ -24,8 +24,10 @@ import {
   SkipForward,
   Eraser,
   BookOpen,
+  Loader2,
+  Square,
 } from 'lucide-react';
-import { speakGerman } from '@/lib/speech';
+import { speakGerman, stopGermanAudio } from '@/lib/speech';
 import {
   checkGermanAnswer,
   computeSpeechSimilarity,
@@ -123,13 +125,32 @@ interface SpeechRecognitionInstance {
   abort: () => void;
 }
 
+function isIOSBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  if (/iPad|iPhone|iPod/i.test(ua)) return true;
+  if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true;
+  return false;
+}
+
 function getSpeechRecognitionCtor(): (new () => SpeechRecognitionInstance) | null {
   if (typeof window === 'undefined') return null;
+  // IMPORTANT: Never use webkitSpeechRecognition on iOS/iPadOS — it freezes the WebKit/PWA UI thread!
+  if (isIOSBrowser()) return null;
   const w = window as unknown as {
     SpeechRecognition?: new () => SpeechRecognitionInstance;
     webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
   };
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
+}
+
+function supportsMediaRecorderMic(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return (
+    typeof navigator.mediaDevices !== 'undefined' &&
+    typeof navigator.mediaDevices.getUserMedia === 'function' &&
+    typeof MediaRecorder !== 'undefined'
+  );
 }
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -190,12 +211,18 @@ export function LessonPlayer({
   const [typedText, setTypedText] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Speaking state
+  // Speaking state (supports live SpeechRecognition on Desktop/Android + zero-freeze MediaRecorder on iOS/PWA!)
   const [isListeningMic, setIsListeningMic] = useState(false);
+  const [isEvaluatingSpeech, setIsEvaluatingSpeech] = useState(false);
   const [spokenText, setSpokenText] = useState('');
+  const [speechFeedbackFa, setSpeechFeedbackFa] = useState('');
   const [micError, setMicError] = useState('');
-  const [speechSupported, setSpeechSupported] = useState(true);
+  const [micMode, setMicMode] = useState<'webspeech' | 'recorder' | 'none'>('none');
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const micTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechAbortRef = useRef<AbortController | null>(null);
 
   // Match-pairs state
   const [matchLeftOrder, setMatchLeftOrder] = useState<Array<{ id: string; de: string }>>([]);
@@ -226,22 +253,65 @@ export function LessonPlayer({
   }, [exercisesKey]);
 
   useEffect(() => {
-    setSpeechSupported(Boolean(getSpeechRecognitionCtor()));
+    if (getSpeechRecognitionCtor()) {
+      setMicMode('webspeech');
+    } else if (supportsMediaRecorderMic()) {
+      setMicMode('recorder');
+    } else {
+      setMicMode('none');
+    }
   }, []);
 
   const currentItem = queue[currentIdx];
   const current = currentItem?.exercise;
 
   const stopMic = useCallback(() => {
-    if (recognitionRef.current) {
+    if (micTimerRef.current) {
+      clearTimeout(micTimerRef.current);
+      micTimerRef.current = null;
+    }
+    if (speechAbortRef.current) {
       try {
-        recognitionRef.current.abort();
+        speechAbortRef.current.abort();
       } catch {
         // ignore
       }
+      speechAbortRef.current = null;
+    }
+    if (recognitionRef.current) {
+      const rec = recognitionRef.current;
       recognitionRef.current = null;
+      try {
+        // Detach handlers first and use stop() instead of synchronous abort() to avoid WebKit deadlocks
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        rec.stop();
+      } catch {
+        // ignore
+      }
+    }
+    if (mediaRecorderRef.current) {
+      const mr = mediaRecorderRef.current;
+      mediaRecorderRef.current = null;
+      try {
+        mr.ondataavailable = null;
+        mr.onstop = null;
+        if (mr.state !== 'inactive') mr.stop();
+      } catch {
+        // ignore
+      }
+    }
+    if (mediaStreamRef.current) {
+      try {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      } catch {
+        // ignore
+      }
+      mediaStreamRef.current = null;
     }
     setIsListeningMic(false);
+    setIsEvaluatingSpeech(false);
   }, []);
 
   // Deterministic snapshot saver called synchronously the moment a question is answered/skipped
@@ -290,6 +360,7 @@ export function LessonPlayer({
   useEffect(() => {
     stopMic();
     setMicError('');
+    setSpeechFeedbackFa('');
     setSelectedLeftId(null);
     setSelectedRightId(null);
     setWrongFlashPair(null);
@@ -489,10 +560,128 @@ export function LessonPlayer({
     [commitStepResult, current, matchMistakeCount, matchedIds, recordOutcome, selectedLeftId, selectedRightId, status]
   );
 
-  // Start / Stop Web Speech Recognition
-  const toggleMicrophone = useCallback(() => {
-    if (!current || current.type !== 'speaking' || status !== 'idle') return;
+  // Start / Stop Microphone (safe MediaRecorder on iOS/PWA + hardened Web Speech on Desktop/Android)
+  const toggleMicrophone = useCallback(async () => {
+    if (!current || current.type !== 'speaking' || status !== 'idle' || isEvaluatingSpeech) return;
 
+    // 1) MediaRecorder path (iOS Safari, iOS Home Screen PWA, Firefox, etc.) -> ZERO WebKit freeze!
+    if (micMode === 'recorder') {
+      if (isListeningMic && mediaRecorderRef.current) {
+        // Finish recording and send to /api/speech-check!
+        if (micTimerRef.current) {
+          clearTimeout(micTimerRef.current);
+          micTimerRef.current = null;
+        }
+        try {
+          if (mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+          }
+        } catch {
+          stopMic();
+        }
+        return;
+      }
+
+      stopGermanAudio();
+      setMicError('');
+      setSpeechFeedbackFa('');
+      setSpokenText('');
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+
+        const mimeCandidates = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'];
+        const chosenMime = mimeCandidates.find(
+          (m) => typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(m)
+        );
+        const recorder = chosenMime ? new MediaRecorder(stream, { mimeType: chosenMime }) : new MediaRecorder(stream);
+        const chunks: Blob[] = [];
+
+        recorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+        };
+
+        recorder.onstop = async () => {
+          mediaRecorderRef.current = null;
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+            mediaStreamRef.current = null;
+          }
+          setIsListeningMic(false);
+
+          const blob = new Blob(chunks, { type: chosenMime || recorder.mimeType || 'audio/mp4' });
+          if (blob.size < 300) {
+            setMicError('صدایی ضبط نشد؛ دوباره روی میکروفون بزن، جمله را بخوان و سپس دکمه توقف را بزن.');
+            return;
+          }
+
+          setIsEvaluatingSpeech(true);
+          const ac = new AbortController();
+          speechAbortRef.current = ac;
+          const reqTimeout = setTimeout(() => ac.abort(), 16000);
+
+          try {
+            const fd = new FormData();
+            fd.append('audio', blob, 'speech.webm');
+            fd.append('targetDe', current.targetDe);
+
+            const res = await fetch('/api/speech-check', {
+              method: 'POST',
+              body: fd,
+              signal: ac.signal,
+            });
+            clearTimeout(reqTimeout);
+            speechAbortRef.current = null;
+            const data = await res.json();
+
+            if (!res.ok) {
+              setMicError(data.error || 'خطا در بررسی صدا؛ دوباره امتحان کن یا رد کن.');
+              return;
+            }
+
+            if (data.transcript) setSpokenText(data.transcript);
+            if (data.feedbackFa) setSpeechFeedbackFa(data.feedbackFa);
+
+            if (data.passed) {
+              commitStepResult('correct', { spokenText: data.transcript || current.targetDe });
+              recordOutcome(true);
+            } else {
+              setMicError(data.feedbackFa || 'کمی نامفهوم بود — دوباره امتحان کن یا رد کن.');
+            }
+          } catch (err) {
+            clearTimeout(reqTimeout);
+            speechAbortRef.current = null;
+            if ((err as Error)?.name !== 'AbortError') {
+              setMicError('ارتباط برای بررسی صدا قطع شد؛ می‌توانی دوباره بزنی یا رد کنی.');
+            }
+          } finally {
+            setIsEvaluatingSpeech(false);
+          }
+        };
+
+        mediaRecorderRef.current = recorder;
+        setIsListeningMic(true);
+        recorder.start();
+
+        // Hard 9-second auto-stop so recording can never stay open forever
+        micTimerRef.current = setTimeout(() => {
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try {
+              mediaRecorderRef.current.stop();
+            } catch {
+              stopMic();
+            }
+          }
+        }, 9000);
+      } catch {
+        stopMic();
+        setMicError('دسترسی میکروفون داده نشد. می‌توانی دسترسی بدهی یا گزینه «الان نمی‌تونم حرف بزنم» را بزنی.');
+      }
+      return;
+    }
+
+    // 2) Live Web Speech API path (Desktop Chrome / Android Chrome)
     if (isListeningMic) {
       stopMic();
       return;
@@ -500,13 +689,15 @@ export function LessonPlayer({
 
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) {
-      setSpeechSupported(false);
-      setMicError('مرورگر شما از تشخیص گفتار پشتیبانی نمی‌کند. می‌توانید با دکمه پایین این سوال را رد کنید.');
+      setMicMode('none');
+      setMicError('مرورگر فعلی از ضبط صدا پشتیبانی نمی‌کند. می‌توانی با دکمه پایین این سوال را رد کنی.');
       return;
     }
 
     try {
+      stopGermanAudio();
       setMicError('');
+      setSpeechFeedbackFa('');
       setSpokenText('');
       const rec = new Ctor();
       rec.lang = 'de-DE';
@@ -536,6 +727,11 @@ export function LessonPlayer({
       };
 
       rec.onerror = (ev) => {
+        if (micTimerRef.current) {
+          clearTimeout(micTimerRef.current);
+          micTimerRef.current = null;
+        }
+        recognitionRef.current = null;
         setIsListeningMic(false);
         if (passed) return;
         if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
@@ -548,6 +744,11 @@ export function LessonPlayer({
       };
 
       rec.onend = () => {
+        if (micTimerRef.current) {
+          clearTimeout(micTimerRef.current);
+          micTimerRef.current = null;
+        }
+        recognitionRef.current = null;
         setIsListeningMic(false);
         if (passed) return;
         if (latestTranscript) {
@@ -565,11 +766,18 @@ export function LessonPlayer({
       recognitionRef.current = rec;
       setIsListeningMic(true);
       rec.start();
+
+      // Safety 10-second auto-stop so Web Speech can never get stuck!
+      micTimerRef.current = setTimeout(() => {
+        if (recognitionRef.current === rec) {
+          stopMic();
+        }
+      }, 10000);
     } catch {
-      setIsListeningMic(false);
+      stopMic();
       setMicError('امکان فعال‌سازی میکروفون نبود. از دکمه رد کردن استفاده کنید.');
     }
-  }, [commitStepResult, current, isListeningMic, recordOutcome, status, stopMic]);
+  }, [commitStepResult, current, isEvaluatingSpeech, isListeningMic, micMode, recordOutcome, status, stopMic]);
 
   const handleSkipSpeaking = useCallback(() => {
     stopMic();
@@ -1511,22 +1719,36 @@ export function LessonPlayer({
                 </div>
 
                 <div className="flex flex-col items-center gap-4 pt-2">
-                  {speechSupported ? (
+                  {micMode !== 'none' ? (
                     <button
                       type="button"
-                      disabled={status !== 'idle'}
-                      onClick={toggleMicrophone}
+                      disabled={status !== 'idle' || isEvaluatingSpeech}
+                      onClick={() => void toggleMicrophone()}
                       className={`btn-3d w-full max-w-xs rounded-3xl border-b-4 py-4 px-6 font-black text-base flex items-center justify-center gap-2.5 transition ${
-                        isListeningMic
-                          ? 'bg-rose-500 border-rose-700 text-white animate-pulse'
-                          : 'bg-sky-500 border-sky-700 text-white hover:bg-sky-400 disabled:opacity-50'
+                        isEvaluatingSpeech
+                          ? 'bg-indigo-500 border-indigo-700 text-white'
+                          : isListeningMic
+                            ? 'bg-rose-500 border-rose-700 text-white animate-pulse'
+                            : 'bg-sky-500 border-sky-700 text-white hover:bg-sky-400 disabled:opacity-50'
                       }`}
                     >
-                      {isListeningMic ? (
+                      {isEvaluatingSpeech ? (
                         <>
-                          <MicOff className="w-5 h-5" />
-                          در حال گوش دادن... (برای توقف بزن)
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          در حال بررسی تلفظ تو...
                         </>
+                      ) : isListeningMic ? (
+                        micMode === 'recorder' ? (
+                          <>
+                            <Square className="w-4 h-4 fill-white" />
+                            در حال ضبط... (تموم شد بزن)
+                          </>
+                        ) : (
+                          <>
+                            <MicOff className="w-5 h-5" />
+                            در حال گوش دادن... (برای توقف بزن)
+                          </>
+                        )
                       ) : (
                         <>
                           <Mic className="w-5 h-5" />
@@ -1536,16 +1758,21 @@ export function LessonPlayer({
                     </button>
                   ) : (
                     <div className="rounded-2xl bg-amber-50 border-2 border-amber-200 p-3.5 text-xs font-bold text-amber-800 text-center max-w-sm">
-                      مرورگر فعلی از تشخیص گفتار پشتیبانی نمی‌کند (در کروم اندروید/دسکتاپ فعال است). می‌توانی تلفظش را گوش کنی و رد کنی.
+                      مرورگر فعلی دسترسی میکروفون ندارد. می‌توانی تلفظش را گوش کنی، با صدای بلند تکرار کنی و دکمه زیر را بزنی.
                     </div>
                   )}
 
                   {spokenText && (
-                    <div className="rounded-2xl bg-white border-2 border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 max-w-sm text-center">
-                      <span className="text-xs text-slate-400 block mb-0.5">چیزی که شنیده شد:</span>
-                      <span className="font-de text-slate-800" dir="ltr">
+                    <div className="rounded-2xl bg-white border-2 border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 max-w-sm text-center space-y-1">
+                      <span className="text-xs text-slate-400 block">چیزی که شنیده شد:</span>
+                      <span className="font-de text-slate-800 block" dir="ltr">
                         «{spokenText}»
                       </span>
+                      {speechFeedbackFa && status === 'correct' && (
+                        <span className="text-xs font-extrabold text-emerald-600 block">
+                          {speechFeedbackFa}
+                        </span>
+                      )}
                     </div>
                   )}
 

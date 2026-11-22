@@ -16,6 +16,7 @@ import {
   Map,
   Zap,
   Snowflake,
+  Quote,
 } from 'lucide-react';
 import { useApp } from './AppProvider';
 
@@ -98,6 +99,17 @@ export function Navbar() {
             >
               <Map className="w-4 h-4 text-sky-500" />
               مسیر B1
+            </Link>
+            <Link
+              href="/idioms"
+              className={`px-3 py-2 rounded-2xl text-xs lg:text-sm font-bold flex items-center gap-1.5 transition ${
+                pathname.startsWith('/idioms')
+                  ? 'bg-orange-50 text-orange-700 border-2 border-orange-200'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Quote className="w-4 h-4 text-orange-500" />
+              اصطلاحات
             </Link>
             <Link
               href="/starred"

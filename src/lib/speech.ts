@@ -280,6 +280,35 @@ function speakWithWebSpeech(
   }
 }
 
+export function stopGermanAudio() {
+  if (typeof window === 'undefined') return;
+  speakSeq += 1;
+  if (watchdogTimer) {
+    clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  }
+  if (sharedAudio && !sharedAudio.paused) {
+    try {
+      sharedAudio.pause();
+    } catch {
+      // ignore
+    }
+  }
+  if ('speechSynthesis' in window) {
+    try {
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (activeStateCb) {
+    activeStateCb('idle');
+    activeStateCb = null;
+  }
+}
+
 export function speakGerman(
   text: string,
   rate = 0.92,

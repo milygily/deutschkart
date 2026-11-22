@@ -240,3 +240,21 @@ export const ttsAudioCache = pgTable('tts_audio_cache', {
   byteSize: integer('byte_size').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const germanIdioms = pgTable('german_idioms', {
+  id: serial('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  category: text('category').notNull(), // sprichwoerter | alltag | arbeit | tiere_essen | gefuehle
+  categoryFa: text('category_fa').notNull(),
+  level: text('level').notNull().default('B1'),
+  icon: text('icon').notNull().default('✨'),
+  expressionDe: text('expression_de').notNull(),
+  literalFa: text('literal_fa').notNull(),
+  persianEquivalent: text('persian_equivalent').notNull(),
+  meaningFa: text('meaning_fa').notNull(),
+  whenToUseFa: text('when_to_use_fa').notNull(),
+  exampleDe: text('example_de').notNull(),
+  exampleFa: text('example_fa').notNull(),
+  orderIndex: integer('order_index').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
