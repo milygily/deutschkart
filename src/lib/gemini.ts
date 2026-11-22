@@ -15,12 +15,11 @@ export interface GeneratedWordCard {
 
 // Ordered by fastest response & highest availability on Free Tier
 const CANDIDATE_MODELS = [
-  'gemini-3.5-flash',
   'gemini-3.6-flash',
+  'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
   'gemini-3.5-flash-lite',
   'gemini-3.7-flash',
-  'gemini-3.8-flash',
 ];
 
 export function normalizeGermanWord(raw: string): string {
@@ -61,11 +60,13 @@ Rules:
 - Max 35 words per request.
 - Ensure Persian translations are natural, idiomatic, and accurate for Iranian Persian speakers.`;
 
-async function callGeminiWithFallback(contents: unknown): Promise<GeneratedWordCard[]> {
+async function callGeminiWithFallback(contents: unknown, timeoutMs = 18000): Promise<GeneratedWordCard[]> {
   const ai = getClient();
   let lastErr: unknown = null;
 
   for (const model of CANDIDATE_MODELS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       let response;
       try {
@@ -78,6 +79,7 @@ async function callGeminiWithFallback(contents: unknown): Promise<GeneratedWordC
             temperature: 0.2,
             // Disable deep thinking for structured vocab extraction -> 2x-4x faster responses!
             thinkingConfig: { thinkingBudget: 0 },
+            abortSignal: controller.signal,
           },
         });
       } catch (innerErr) {
@@ -91,12 +93,14 @@ async function callGeminiWithFallback(contents: unknown): Promise<GeneratedWordC
             config: {
               responseMimeType: 'application/json',
               temperature: 0.2,
+              abortSignal: controller.signal,
             },
           });
         } else {
           throw innerErr;
         }
       }
+      clearTimeout(timer);
       const text = response.text?.trim() || '[]';
       const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
       const parsed = JSON.parse(cleaned);
@@ -125,6 +129,7 @@ async function callGeminiWithFallback(contents: unknown): Promise<GeneratedWordC
           level: ['A1', 'A2', 'B1', 'B2', 'C1'].includes(item.level) ? item.level : null,
         }));
     } catch (err) {
+      clearTimeout(timer);
       lastErr = err;
     }
   }
