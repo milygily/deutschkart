@@ -17,6 +17,11 @@ export const users = pgTable('users', {
   showEnglish: boolean('show_english').notNull().default(false),
   streakCount: integer('streak_count').notNull().default(0),
   lastStudiedDate: text('last_studied_date'), // YYYY-MM-DD
+  totalXp: integer('total_xp').notNull().default(0),
+  dailyXp: integer('daily_xp').notNull().default(0),
+  dailyXpDate: text('daily_xp_date'), // YYYY-MM-DD
+  dailyGoal: integer('daily_goal').notNull().default(50),
+  streakFreezes: integer('streak_freezes').notNull().default(2),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -142,3 +147,88 @@ export const deckStories = pgTable('deck_stories', {
   usedWords: jsonb('used_words').notNull().default([]),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const grammarTopics = pgTable('grammar_topics', {
+  id: serial('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  level: text('level').notNull().default('B1'),
+  category: text('category').notNull(), // verbs | clauses | passive | relative | cases | connectors
+  categoryFa: text('category_fa').notNull(),
+  orderIndex: integer('order_index').notNull().default(0),
+  titleDe: text('title_de').notNull(),
+  titleFa: text('title_fa').notNull(),
+  summaryFa: text('summary_fa').notNull(),
+  icon: text('icon').notNull().default('📐'),
+  color: text('color').notNull().default('emerald'),
+  lessonContent: jsonb('lesson_content').notNull(),
+  exercises: jsonb('exercises').notNull().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const userGrammarProgress = pgTable(
+  'user_grammar_progress',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    topicId: integer('topic_id')
+      .notNull()
+      .references(() => grammarTopics.id, { onDelete: 'cascade' }),
+    completedCount: integer('completed_count').notNull().default(0),
+    correctCount: integer('correct_count').notNull().default(0),
+    sessionsCompleted: integer('sessions_completed').notNull().default(0),
+    masteryPct: integer('mastery_pct').notNull().default(0),
+    lastPracticedAt: timestamp('last_practiced_at').defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('user_grammar_progress_idx').on(table.userId, table.topicId)]
+);
+
+export const courseUnits = pgTable('course_units', {
+  id: serial('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  level: text('level').notNull().default('B1'),
+  orderIndex: integer('order_index').notNull().default(0),
+  titleDe: text('title_de').notNull(),
+  titleFa: text('title_fa').notNull(),
+  descriptionFa: text('description_fa').notNull(),
+  icon: text('icon').notNull().default('🗺️'),
+  color: text('color').notNull().default('emerald'),
+  grammarSlugs: jsonb('grammar_slugs').notNull().default([]),
+  linkedDeckSlug: text('linked_deck_slug'),
+  guidebookFa: jsonb('guidebook_fa').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const courseLessons = pgTable('course_lessons', {
+  id: serial('id').primaryKey(),
+  unitId: integer('unit_id')
+    .notNull()
+    .references(() => courseUnits.id, { onDelete: 'cascade' }),
+  slug: text('slug').notNull().unique(),
+  orderIndex: integer('order_index').notNull().default(0),
+  lessonType: text('lesson_type').notNull().default('vocab'), // vocab | grammar | listening | review
+  titleFa: text('title_fa').notNull(),
+  titleDe: text('title_de').notNull(),
+  xpReward: integer('xp_reward').notNull().default(20),
+  grammarSlug: text('grammar_slug'),
+  exercises: jsonb('exercises').notNull().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const userLessonProgress = pgTable(
+  'user_lesson_progress',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    lessonId: integer('lesson_id')
+      .notNull()
+      .references(() => courseLessons.id, { onDelete: 'cascade' }),
+    completedCount: integer('completed_count').notNull().default(0),
+    bestAccuracy: integer('best_accuracy').notNull().default(0),
+    completedAt: timestamp('completed_at').defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('user_lesson_progress_idx').on(table.userId, table.lessonId)]
+);

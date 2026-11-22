@@ -606,6 +606,14 @@ export default function DeckDetailPage() {
                 </Link>
 
                 <Link
+                  href={`/deck/${deck.id}/practice`}
+                  className="btn-3d w-full rounded-2xl bg-gradient-to-l from-indigo-500 to-violet-600 border-b-4 border-indigo-800 text-white py-4 px-5 flex items-center justify-center gap-2.5 font-black text-base shadow-md hover:brightness-105"
+                >
+                  <Sparkles className="w-5 h-5" />
+                  تمرین کامل دولینگویی (جمله‌سازی + شنیداری + مکالمه 🎮)
+                </Link>
+
+                <Link
                   href={`/deck/${deck.id}/story`}
                   className="btn-3d w-full rounded-2xl bg-gradient-to-l from-rose-500 to-pink-500 border-b-4 border-rose-700 text-white py-4 px-5 flex items-center justify-center gap-2.5 font-black text-base shadow-md hover:brightness-105"
                 >

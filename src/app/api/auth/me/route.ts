@@ -16,13 +16,16 @@ export async function PATCH(req: Request) {
   }
 
   const body = await req.json();
-  const updates: { showEnglish?: boolean; name?: string } = {};
+  const updates: { showEnglish?: boolean; name?: string; dailyGoal?: number } = {};
 
   if (typeof body.showEnglish === 'boolean') {
     updates.showEnglish = body.showEnglish;
   }
   if (typeof body.name === 'string' && body.name.trim()) {
     updates.name = body.name.trim();
+  }
+  if (typeof body.dailyGoal === 'number' && [30, 50, 100].includes(body.dailyGoal)) {
+    updates.dailyGoal = body.dailyGoal;
   }
 
   if (Object.keys(updates).length > 0) {

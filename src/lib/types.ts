@@ -55,6 +55,11 @@ export interface AppUser {
   showEnglish: boolean;
   streakCount: number;
   lastStudiedDate: string | null;
+  totalXp: number;
+  dailyXp: number;
+  dailyXpDate: string | null;
+  dailyGoal: number;
+  streakFreezes: number;
 }
 
 export function getArticleStyle(article: string | null) {

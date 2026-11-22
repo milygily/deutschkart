@@ -15,6 +15,7 @@ interface AppContextValue {
   loadingUser: boolean;
   showEnglish: boolean;
   setShowEnglish: (val: boolean) => Promise<void>;
+  setDailyGoal: (goal: number) => Promise<void>;
   starredIds: Set<number>;
   toggleStar: (wordId: number) => Promise<boolean>;
   masteredIds: Set<number>;
@@ -106,6 +107,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // ignore
         }
       }
+    },
+    [user]
+  );
+
+  const setDailyGoal = useCallback(
+    async (goal: number) => {
+      if (!user) return;
+      setUser((prev) => (prev ? { ...prev, dailyGoal: goal } : prev));
+      await fetch('/api/auth/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dailyGoal: goal }),
+      });
     },
     [user]
   );
@@ -237,6 +251,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loadingUser,
         showEnglish,
         setShowEnglish,
+        setDailyGoal,
         starredIds,
         toggleStar,
         masteredIds,

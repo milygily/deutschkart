@@ -66,40 +66,133 @@ export async function getCurrentUser() {
         showEnglish: users.showEnglish,
         streakCount: users.streakCount,
         lastStudiedDate: users.lastStudiedDate,
+        totalXp: users.totalXp,
+        dailyXp: users.dailyXp,
+        dailyXpDate: users.dailyXpDate,
+        dailyGoal: users.dailyGoal,
+        streakFreezes: users.streakFreezes,
       })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
 
-    return rows[0] ?? null;
+    const row = rows[0];
+    if (!row) return null;
+
+    const today = getTodayDateStr();
+    const effectiveDailyXp = row.dailyXpDate === today ? row.dailyXp : 0;
+
+    return {
+      ...row,
+      dailyXp: effectiveDailyXp,
+    };
   } catch {
     return null;
   }
 }
 
-export async function touchUserStreak(userId: number) {
-  const today = new Date().toISOString().slice(0, 10);
+export function getTodayDateStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getDaysDiff(prevDateStr: string | null, todayStr: string): number | null {
+  if (!prevDateStr) return null;
+  const prevMs = Date.parse(`${prevDateStr}T00:00:00Z`);
+  const todayMs = Date.parse(`${todayStr}T00:00:00Z`);
+  if (Number.isNaN(prevMs) || Number.isNaN(todayMs)) return null;
+  return Math.round((todayMs - prevMs) / 86400000);
+}
+
+export interface XpAwardResult {
+  totalXp: number;
+  dailyXp: number;
+  dailyGoal: number;
+  streakCount: number;
+  streakFreezes: number;
+  xpEarned: number;
+  goalJustReached: boolean;
+  freezeUsed: boolean;
+  freezeEarned: boolean;
+}
+
+export async function awardUserXp(userId: number, xpAmount: number): Promise<XpAwardResult | null> {
+  const safeXp = Math.max(0, Math.min(200, Math.round(xpAmount)));
+  const today = getTodayDateStr();
+
   const rows = await db
     .select({
       streakCount: users.streakCount,
       lastStudiedDate: users.lastStudiedDate,
+      totalXp: users.totalXp,
+      dailyXp: users.dailyXp,
+      dailyXpDate: users.dailyXpDate,
+      dailyGoal: users.dailyGoal,
+      streakFreezes: users.streakFreezes,
     })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
 
   const user = rows[0];
-  if (!user) return;
-  if (user.lastStudiedDate === today) return;
+  if (!user) return null;
 
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  const nextStreak = user.lastStudiedDate === yesterday ? user.streakCount + 1 : 1;
+  const prevDailyXp = user.dailyXpDate === today ? user.dailyXp : 0;
+  const nextDailyXp = prevDailyXp + safeXp;
+  const nextTotalXp = user.totalXp + safeXp;
+  const goalJustReached = prevDailyXp < user.dailyGoal && nextDailyXp >= user.dailyGoal;
+
+  let nextStreak = user.streakCount;
+  let nextFreezes = user.streakFreezes;
+  let freezeUsed = false;
+  let freezeEarned = false;
+
+  const diff = getDaysDiff(user.lastStudiedDate, today);
+  if (diff === null) {
+    nextStreak = 1;
+  } else if (diff === 0) {
+    nextStreak = Math.max(1, user.streakCount);
+  } else if (diff === 1) {
+    nextStreak = user.streakCount + 1;
+  } else if (diff === 2 && user.streakFreezes > 0) {
+    // Auto-use 1 Streak Freeze to protect a 1-day miss!
+    nextFreezes = user.streakFreezes - 1;
+    nextStreak = user.streakCount + 1;
+    freezeUsed = true;
+  } else if (diff > 1) {
+    nextStreak = 1;
+  }
+
+  // Reward 1 free Streak Freeze every 7 consecutive days (cap at 5)
+  if (diff !== 0 && nextStreak > 0 && nextStreak % 7 === 0 && nextFreezes < 5) {
+    nextFreezes += 1;
+    freezeEarned = true;
+  }
 
   await db
     .update(users)
     .set({
+      totalXp: nextTotalXp,
+      dailyXp: nextDailyXp,
+      dailyXpDate: today,
       streakCount: nextStreak,
       lastStudiedDate: today,
+      streakFreezes: nextFreezes,
     })
     .where(eq(users.id, userId));
+
+  return {
+    totalXp: nextTotalXp,
+    dailyXp: nextDailyXp,
+    dailyGoal: user.dailyGoal,
+    streakCount: nextStreak,
+    streakFreezes: nextFreezes,
+    xpEarned: safeXp,
+    goalJustReached,
+    freezeUsed,
+    freezeEarned,
+  };
+}
+
+export async function touchUserStreak(userId: number) {
+  await awardUserXp(userId, 2);
 }
