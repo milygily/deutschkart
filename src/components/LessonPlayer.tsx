@@ -889,7 +889,7 @@ export function LessonPlayer({
                   <div className="rounded-3xl bg-white border-2 border-slate-200 p-5 sm:p-6 shadow-xs space-y-3">
                     <div
                       dir="ltr"
-                      className="font-de text-lg sm:text-xl font-extrabold text-slate-800 leading-loose text-left"
+                      className="font-de text-xl sm:text-2xl font-black text-slate-900 leading-loose text-left"
                     >
                       <span>{current.sentenceBefore}</span>
                       <span
@@ -909,7 +909,7 @@ export function LessonPlayer({
                     </div>
 
                     {current.translationFa && (
-                      <p className="text-sm font-bold text-slate-500 border-t border-slate-100 pt-2.5">
+                      <p className="text-base font-bold text-slate-600 border-t border-slate-100 pt-3 leading-relaxed">
                         {current.translationFa}
                       </p>
                     )}
@@ -1392,7 +1392,7 @@ export function LessonPlayer({
 
               {current.explanationFa && (
                 <p
-                  className={`text-xs sm:text-sm font-bold leading-relaxed ${
+                  className={`text-sm sm:text-base font-bold leading-relaxed ${
                     status === 'correct'
                       ? 'text-emerald-800'
                       : status === 'skipped'

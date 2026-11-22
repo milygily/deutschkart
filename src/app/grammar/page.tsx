@@ -254,7 +254,7 @@ export default function GrammarHubPage() {
                           </div>
                           <h2
                             dir="ltr"
-                            className="font-de text-base sm:text-lg font-black text-slate-800 text-left truncate"
+                            className="font-de text-lg sm:text-xl font-black text-slate-800 text-left truncate"
                           >
                             {topic.titleDe}
                           </h2>
@@ -262,9 +262,9 @@ export default function GrammarHubPage() {
                       </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <div className="text-sm font-black text-slate-700">{topic.titleFa}</div>
-                      <p className="text-xs font-medium text-slate-500 leading-relaxed line-clamp-2">
+                    <div className="space-y-1.5">
+                      <div className="text-base font-black text-slate-800">{topic.titleFa}</div>
+                      <p className="text-sm font-medium text-slate-600 leading-relaxed line-clamp-2">
                         {topic.summaryFa}
                       </p>
                     </div>

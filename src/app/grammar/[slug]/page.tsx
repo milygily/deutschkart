@@ -20,7 +20,7 @@ import {
 import { Navbar } from '@/components/Navbar';
 import { InteractiveSentence } from '@/components/InteractiveSentence';
 import { LessonPlayer, type LessonCompletionPayload } from '@/components/LessonPlayer';
-import { speakGerman } from '@/lib/speech';
+import { speakGerman, type SpeechPlayState } from '@/lib/speech';
 import type { Exercise, GrammarLessonContent } from '@/lib/exercises';
 
 interface GrammarTopicFull {
@@ -72,6 +72,10 @@ export default function GrammarTopicDetailPage() {
   // Drill player state
   const [activeExercises, setActiveExercises] = useState<Exercise[] | null>(null);
   const [sessionSeed, setSessionSeed] = useState(1);
+
+  // Audio button feedback state per example
+  const [speakingExIdx, setSpeakingExIdx] = useState<number | null>(null);
+  const [speakingState, setSpeakingState] = useState<SpeechPlayState>('idle');
 
   // AI "+10 fresh exercises" generator state
   const [generatingMore, setGeneratingMore] = useState(false);
@@ -222,10 +226,10 @@ export default function GrammarTopicDetailPage() {
                         {topic.exercises.length} تمرین آماده
                       </span>
                     </div>
-                    <h1 dir="ltr" className="font-de text-xl sm:text-2xl font-black text-slate-800 text-left">
+                    <h1 dir="ltr" className="font-de text-2xl sm:text-3xl font-black text-slate-800 text-left">
                       {topic.titleDe}
                     </h1>
-                    <p className="text-sm sm:text-base font-extrabold text-indigo-700">
+                    <p className="text-base sm:text-lg font-extrabold text-indigo-700">
                       {topic.titleFa}
                     </p>
                   </div>
@@ -281,41 +285,41 @@ export default function GrammarTopicDetailPage() {
             {activeTab === 'lesson' && topic.lessonContent && (
               <div className="space-y-5">
                 {/* Golden Formula Card */}
-                <section className="rounded-3xl bg-gradient-to-l from-indigo-600 to-violet-600 text-white p-6 shadow-md space-y-2.5">
-                  <div className="text-xs font-extrabold text-indigo-200">⚡ فرمول طلایی ساختار:</div>
+                <section className="rounded-3xl bg-gradient-to-l from-indigo-600 to-violet-600 text-white p-6 sm:p-7 shadow-md space-y-3">
+                  <div className="text-sm font-extrabold text-indigo-100">⚡ فرمول طلایی ساختار:</div>
                   <div
                     dir="ltr"
-                    className="font-de text-lg sm:text-xl font-black bg-white/15 rounded-2xl px-4 py-3 text-left"
+                    className="font-de text-xl sm:text-2xl font-black bg-white/15 rounded-2xl px-4 py-3.5 text-left leading-relaxed"
                   >
                     {topic.lessonContent.formulaDe}
                   </div>
-                  <p className="text-sm font-bold text-indigo-50 leading-relaxed">
+                  <p className="text-base sm:text-[17px] font-bold text-indigo-50 leading-loose">
                     {topic.lessonContent.formulaFa}
                   </p>
                 </section>
 
                 {/* Intro + Golden Rules */}
-                <section className="rounded-3xl bg-white border-2 border-slate-200 p-6 space-y-4">
-                  <div className="space-y-2">
-                    <h2 className="text-base sm:text-lg font-black text-slate-800">
+                <section className="rounded-3xl bg-white border-2 border-slate-200 p-6 sm:p-7 space-y-5">
+                  <div className="space-y-2.5">
+                    <h2 className="text-lg sm:text-xl font-black text-slate-800">
                       کی و چرا از این گرامر استفاده می‌کنیم؟
                     </h2>
-                    <p className="text-sm font-medium text-slate-600 leading-loose">
+                    <p className="text-base sm:text-[17px] font-medium text-slate-700 leading-[2.1]">
                       {topic.lessonContent.introFa}
                     </p>
                   </div>
 
                   {Array.isArray(topic.lessonContent.keyRulesFa) &&
                     topic.lessonContent.keyRulesFa.length > 0 && (
-                      <div className="space-y-2.5 pt-2 border-t border-slate-100">
-                        <h3 className="text-sm font-black text-indigo-700">📌 نکات کلیدی و قوانین مهم:</h3>
-                        <ul className="space-y-2">
+                      <div className="space-y-3 pt-3 border-t border-slate-100">
+                        <h3 className="text-base sm:text-lg font-black text-indigo-700">📌 نکات کلیدی و قوانین مهم:</h3>
+                        <ul className="space-y-2.5">
                           {topic.lessonContent.keyRulesFa.map((rule, idx) => (
                             <li
                               key={idx}
-                              className="flex items-start gap-2.5 text-sm font-bold text-slate-700 leading-relaxed bg-slate-50 rounded-2xl px-3.5 py-2.5"
+                              className="flex items-start gap-3 text-[15px] sm:text-base font-bold text-slate-800 leading-[1.9] bg-slate-50 rounded-2xl px-4 py-3"
                             >
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-1" />
+                              <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-1" />
                               <span>{rule}</span>
                             </li>
                           ))}
@@ -329,17 +333,17 @@ export default function GrammarTopicDetailPage() {
                   topic.lessonContent.tables.map((tbl, tIdx) => (
                     <section
                       key={tIdx}
-                      className="rounded-3xl bg-white border-2 border-slate-200 p-5 sm:p-6 space-y-3"
+                      className="rounded-3xl bg-white border-2 border-slate-200 p-5 sm:p-6 space-y-3.5"
                     >
-                      <h3 className="text-base font-black text-slate-800">📊 {tbl.titleFa}</h3>
+                      <h3 className="text-lg font-black text-slate-800">📊 {tbl.titleFa}</h3>
                       <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                        <table className="w-full text-sm border-collapse min-w-[420px]">
+                        <table className="w-full text-[15px] sm:text-base border-collapse min-w-[440px]">
                           <thead>
                             <tr className="bg-indigo-50 text-indigo-900">
                               {tbl.headers.map((h, hIdx) => (
                                 <th
                                   key={hIdx}
-                                  className="px-3.5 py-2.5 font-black text-right border-b border-indigo-100"
+                                  className="px-4 py-3 font-black text-right border-b border-indigo-100"
                                 >
                                   {h}
                                 </th>
@@ -358,7 +362,7 @@ export default function GrammarTopicDetailPage() {
                                     <td
                                       key={cIdx}
                                       dir={isDe ? 'ltr' : 'rtl'}
-                                      className={`px-3.5 py-2.5 border-b border-slate-100 font-bold text-slate-700 ${
+                                      className={`px-4 py-3 border-b border-slate-100 font-bold text-slate-800 ${
                                         isDe ? 'font-de text-left text-indigo-950' : 'text-right'
                                       }`}
                                     >
@@ -377,36 +381,58 @@ export default function GrammarTopicDetailPage() {
                 {/* Interactive Audio Examples */}
                 {Array.isArray(topic.lessonContent.examples) &&
                   topic.lessonContent.examples.length > 0 && (
-                    <section className="rounded-3xl bg-white border-2 border-slate-200 p-5 sm:p-6 space-y-4 overflow-visible">
+                    <section className="rounded-3xl bg-white border-2 border-slate-200 p-5 sm:p-7 space-y-4 overflow-visible">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <h3 className="text-base font-black text-slate-800">
-                          🗣️ مثال‌های واقعی سطح B1 (روی هر کلمه بزنی معنیش میاد!)
+                        <h3 className="text-lg sm:text-xl font-black text-slate-800">
+                          🗣️ مثال‌های واقعی سطح B1
                         </h3>
+                        <span className="rounded-xl bg-sky-100 text-sky-800 px-3 py-1 text-xs sm:text-sm font-black">
+                          {topic.lessonContent.examples.length} مثال کاربردی · روی هر کلمه بزن تا معنیش بیاد
+                        </span>
                       </div>
-                      <div className="space-y-3">
+                      <div className="space-y-3.5">
                         {topic.lessonContent.examples.map((ex, eIdx) => (
                           <div
                             key={eIdx}
-                            className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-2 overflow-visible"
+                            className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-4 sm:p-5 space-y-2 overflow-visible"
                           >
-                            <div className="flex items-start gap-3">
+                            <div className="flex items-start gap-3.5">
                               <button
                                 type="button"
-                                onClick={() => speakGerman(ex.de, 0.9)}
-                                className="w-10 h-10 rounded-xl bg-sky-100 text-sky-600 hover:bg-sky-200 flex items-center justify-center shrink-0 transition"
+                                onClick={() => {
+                                  setSpeakingExIdx(eIdx);
+                                  speakGerman(ex.de, 0.9, (st) => {
+                                    setSpeakingState(st);
+                                    if (st === 'idle') setSpeakingExIdx(null);
+                                  });
+                                }}
+                                className={`btn-3d w-12 h-12 rounded-2xl border-b-2 flex items-center justify-center shrink-0 transition ${
+                                  speakingExIdx === eIdx && speakingState === 'playing'
+                                    ? 'bg-sky-500 border-sky-700 text-white scale-105'
+                                    : speakingExIdx === eIdx && speakingState === 'loading'
+                                      ? 'bg-sky-200 border-sky-400 text-sky-700'
+                                      : 'bg-sky-100 border-sky-300 text-sky-600 hover:bg-sky-200'
+                                }`}
                                 title="پخش تلفظ آلمانی"
+                                aria-label="پخش تلفظ آلمانی"
                               >
-                                <Volume2 className="w-5 h-5" />
+                                {speakingExIdx === eIdx && speakingState === 'loading' ? (
+                                  <Loader2 className="w-6 h-6 animate-spin" />
+                                ) : (
+                                  <Volume2 className="w-6 h-6" />
+                                )}
                               </button>
-                              <div className="flex-1 space-y-1">
+                              <div className="flex-1 space-y-1.5">
                                 <InteractiveSentence
                                   sentence={ex.de}
                                   highlightWords={ex.highlight ? ex.highlight.split(/\s+/) : undefined}
-                                  className="font-de text-base sm:text-lg font-extrabold text-slate-800 leading-relaxed text-left"
+                                  className="font-de text-lg sm:text-[21px] font-black text-slate-900 leading-relaxed text-left"
                                 />
-                                <p className="text-sm font-bold text-slate-600">{ex.fa}</p>
+                                <p className="text-base sm:text-[17px] font-bold text-slate-700 leading-relaxed">
+                                  {ex.fa}
+                                </p>
                                 {ex.noteFa && (
-                                  <p className="text-xs font-extrabold text-indigo-600">
+                                  <p className="text-sm sm:text-[15px] font-extrabold text-indigo-700 leading-relaxed pt-0.5">
                                     💡 {ex.noteFa}
                                   </p>
                                 )}
@@ -421,26 +447,26 @@ export default function GrammarTopicDetailPage() {
                 {/* Common Persian-Speaker Pitfalls */}
                 {Array.isArray(topic.lessonContent.persianPitfalls) &&
                   topic.lessonContent.persianPitfalls.length > 0 && (
-                    <section className="rounded-3xl bg-amber-50 border-2 border-amber-200 p-5 sm:p-6 space-y-3.5">
-                      <h3 className="text-base font-black text-amber-950 flex items-center gap-2">
+                    <section className="rounded-3xl bg-amber-50 border-2 border-amber-200 p-5 sm:p-6 space-y-4">
+                      <h3 className="text-lg font-black text-amber-950 flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5 text-amber-600" />
                         اشتباهات رایج فارسی‌زبانان در این گرامر
                       </h3>
-                      <div className="space-y-3">
+                      <div className="space-y-3.5">
                         {topic.lessonContent.persianPitfalls.map((pit, pIdx) => (
                           <div
                             key={pIdx}
-                            className="rounded-2xl bg-white border border-amber-200 p-4 space-y-2"
+                            className="rounded-2xl bg-white border border-amber-200 p-4 sm:p-5 space-y-2.5"
                           >
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" dir="ltr">
-                              <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-xs sm:text-sm font-de font-bold text-rose-700 line-through">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5" dir="ltr">
+                              <div className="rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-2.5 text-sm sm:text-base font-de font-bold text-rose-700 line-through">
                                 ❌ {pit.wrongDe}
                               </div>
-                              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs sm:text-sm font-de font-extrabold text-emerald-800">
+                              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-sm sm:text-base font-de font-extrabold text-emerald-800">
                                 ✅ {pit.rightDe}
                               </div>
                             </div>
-                            <p className="text-xs sm:text-sm font-bold text-slate-700 leading-relaxed">
+                            <p className="text-sm sm:text-base font-bold text-slate-700 leading-relaxed">
                               {pit.whyFa}
                             </p>
                           </div>
