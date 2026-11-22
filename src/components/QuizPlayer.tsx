@@ -121,24 +121,49 @@ function buildQuestions(cards: WordCard[], mode: QuizMode): QuizQuestion[] {
   return mode === 'mix' || mode === 'meaning-mix' ? shuffle(questions) : questions;
 }
 
+interface QuizQueueEntry {
+  question: QuizQuestion;
+  retryRound: number;
+}
+
 export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps) {
   const { recordQuiz, starredIds, toggleStar } = useApp();
   const [sourceCards, setSourceCards] = useState<WordCard[]>(cards);
   const [seedKey, setSeedKey] = useState(0);
 
-  const questions = useMemo(
+  const initialQuestions = useMemo(
     () => buildQuestions(sourceCards, mode),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sourceCards, mode, seedKey]
   );
 
+  const [queue, setQueue] = useState<QuizQueueEntry[]>(() =>
+    initialQuestions.map((question) => ({ question, retryRound: 0 }))
+  );
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
+  const [masteredIds, setMasteredIds] = useState<Set<string>>(() => new Set());
   const [wrongCards, setWrongCards] = useState<WordCard[]>([]);
+  const [retryIntermission, setRetryIntermission] = useState<{
+    nextIndex: number;
+    round: number;
+    count: number;
+  } | null>(null);
 
-  const current = questions[index] ?? null;
-  const isFinished = questions.length > 0 && index >= questions.length;
+  useEffect(() => {
+    setQueue(initialQuestions.map((question) => ({ question, retryRound: 0 })));
+    setIndex(0);
+    setSelected(null);
+    setCorrectCount(0);
+    setMasteredIds(new Set());
+    setWrongCards([]);
+    setRetryIntermission(null);
+  }, [initialQuestions]);
+
+  const currentEntry = queue[index] ?? null;
+  const current = currentEntry?.question ?? null;
+  const isFinished = queue.length > 0 && index >= queue.length && !retryIntermission;
 
   useEffect(() => {
     if (isFinished) {
@@ -151,16 +176,34 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
   }, [isFinished]);
 
   function handleSelect(option: string) {
-    if (!current || selected !== null) return;
+    if (!current || !currentEntry || selected !== null) return;
     setSelected(option);
     const isCorrect = option === current.correctAnswer;
 
     if (isCorrect) {
-      setCorrectCount((c) => c + 1);
+      if (currentEntry.retryRound === 0) {
+        setCorrectCount((c) => c + 1);
+      }
+      setMasteredIds((prev) => {
+        const next = new Set(prev);
+        next.add(current.id);
+        return next;
+      });
     } else {
       setWrongCards((prev) =>
         prev.some((w) => w.id === current.card.id) ? prev : [...prev, current.card]
       );
+      // Duolingo-style mandatory retry: push into next retry round with shuffled options until answered right!
+      setQueue((prev) => [
+        ...prev,
+        {
+          question: {
+            ...current,
+            options: current.type === 'article' ? ['der', 'die', 'das'] : shuffle(current.options),
+          },
+          retryRound: currentEntry.retryRound + 1,
+        },
+      ]);
     }
 
     recordQuiz(current.card.id, isCorrect);
@@ -168,19 +211,29 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
 
   function handleNext() {
     setSelected(null);
-    setIndex((i) => i + 1);
+    const nextIdx = index + 1;
+    if (nextIdx < queue.length && currentEntry && queue[nextIdx].retryRound > currentEntry.retryRound) {
+      const nextRound = queue[nextIdx].retryRound;
+      const count = queue.filter((e) => e.retryRound === nextRound).length;
+      setRetryIntermission({ nextIndex: nextIdx, round: nextRound, count });
+      return;
+    }
+    setIndex(nextIdx);
+  }
+
+  function startRetryRound() {
+    if (!retryIntermission) return;
+    const { nextIndex } = retryIntermission;
+    setRetryIntermission(null);
+    setIndex(nextIndex);
   }
 
   function restart(subset?: WordCard[]) {
     setSourceCards(subset && subset.length > 0 ? subset : cards);
-    setIndex(0);
-    setSelected(null);
-    setCorrectCount(0);
-    setWrongCards([]);
     setSeedKey((k) => k + 1);
   }
 
-  if (questions.length === 0) {
+  if (initialQuestions.length === 0) {
     return (
       <div className="max-w-md mx-auto text-center py-16 px-4">
         <div className="text-5xl mb-4">🧐</div>
@@ -199,8 +252,39 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
     );
   }
 
+  if (retryIntermission) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-12 text-center">
+        <div className="rounded-3xl bg-white border-2 border-amber-200 shadow-xl p-8 space-y-5">
+          <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-amber-400 to-orange-500 border-b-4 border-orange-600 flex items-center justify-center text-4xl shadow-lg">
+            🔄
+          </div>
+          <div className="space-y-1.5">
+            <span className="inline-block rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-black">
+              {retryIntermission.round === 1
+                ? 'مرور اشتباهات آزمون'
+                : `دور ${retryIntermission.round} اصلاح اشتباهات`}
+            </span>
+            <h2 className="text-2xl font-black text-slate-800">وقت اصلاح اشتباهاته! 💪</h2>
+            <p className="text-sm font-bold text-slate-600 leading-relaxed">
+              توی این دور <strong className="text-orange-600">{retryIntermission.count} سوال غلط</strong> داشتی. بیا دوباره بزنیمشون تا همه رو درست حل کنی!
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={startRetryRound}
+            className="btn-3d w-full rounded-2xl bg-gradient-to-l from-amber-500 to-orange-500 border-b-4 border-orange-700 text-white py-3.5 font-black text-base flex items-center justify-center gap-2"
+          >
+            <RefreshCw className="w-5 h-5" />
+            بزن بریم! (شروع اصلاح اشتباهات)
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (isFinished) {
-    const pct = Math.round((correctCount / questions.length) * 100);
+    const pct = Math.round((correctCount / initialQuestions.length) * 100);
     return (
       <div className="max-w-md mx-auto px-4 py-10 text-center">
         <div className="rounded-3xl bg-white border-2 border-slate-100 shadow-xl p-8 space-y-5">
@@ -209,23 +293,23 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
           </div>
           <div>
             <h2 className="text-2xl font-black text-slate-800">
-              {pct >= 80 ? 'دمت گرم! فوق‌العاده بود 🏆' : pct >= 50 ? 'خیلی خوب بود! 👏' : 'عالی برای شروع! 💪'}
+              {pct >= 80 ? 'دمت گرم! فوق‌العاده بود 🏆' : pct >= 50 ? 'آفرین! تمام اشتباهات رو هم اصلاح کردی 👏' : 'عالی! بالاخره همش رو درست زدی 💪'}
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              آزمون دسته «{deckTitle}» به پایان رسید
+              آزمون دسته «{deckTitle}» با تسلط کامل به پایان رسید
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-emerald-50 border-2 border-emerald-200 p-3">
               <div className="text-3xl font-black text-emerald-600">{pct}%</div>
-              <div className="text-xs font-bold text-emerald-700">دقت پاسخ‌ها</div>
+              <div className="text-xs font-bold text-emerald-700">دقت بار اول</div>
             </div>
             <div className="rounded-2xl bg-sky-50 border-2 border-sky-200 p-3">
               <div className="text-3xl font-black text-sky-600">
-                {correctCount}/{questions.length}
+                {correctCount}/{initialQuestions.length}
               </div>
-              <div className="text-xs font-bold text-sky-700">پاسخ درست</div>
+              <div className="text-xs font-bold text-sky-700">درست در بار اول</div>
             </div>
           </div>
 
@@ -257,9 +341,16 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
     );
   }
 
+  if (!current || !currentEntry) return null;
+
   const isCorrectSelected = selected !== null && selected === current.correctAnswer;
-  const progressPct = Math.round(((index + (selected ? 1 : 0)) / questions.length) * 100);
+  const progressPct = Math.round((masteredIds.size / Math.max(1, initialQuestions.length)) * 100);
   const isStarred = starredIds.has(current.card.id);
+  const roundItems = queue
+    .map((e, i) => ({ e, i }))
+    .filter((x) => x.e.retryRound === currentEntry.retryRound);
+  const roundPos = Math.max(1, roundItems.findIndex((x) => x.i === index) + 1);
+  const roundTotal = Math.max(1, roundItems.length);
 
   const articleButtonStyles: Record<string, string> = {
     der: 'bg-sky-500 border-sky-700 hover:bg-sky-400 text-white',
@@ -290,13 +381,19 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
                       ? 'آزمون معنی (قاطی 🔀)'
                       : 'آزمون معنی (آلمانی به فارسی)'}
             </span>
-            <span>
-              {index + 1} از {questions.length}
+            <span className={currentEntry.retryRound > 0 ? 'text-orange-600 font-black' : ''}>
+              {currentEntry.retryRound > 0
+                ? `🔄 اصلاح اشتباه ${roundPos} از ${roundTotal}`
+                : `${roundPos} از ${roundTotal}`}
             </span>
           </div>
           <div className="h-3.5 rounded-full bg-slate-200 overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-l from-sky-400 to-indigo-500 transition-all duration-300"
+              className={`h-full rounded-full transition-all duration-300 ${
+                currentEntry.retryRound > 0
+                  ? 'bg-gradient-to-l from-amber-400 to-orange-500'
+                  : 'bg-gradient-to-l from-sky-400 to-indigo-500'
+              }`}
               style={{ width: `${Math.max(progressPct, 5)}%` }}
             />
           </div>
@@ -540,7 +637,11 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
                   : 'bg-rose-500 border-rose-700 hover:bg-rose-400'
               }`}
             >
-              {index + 1 >= questions.length ? 'دیدن نتیجه آزمون 🏆' : 'سوال بعدی ⬅'}
+              {index + 1 >= queue.length
+                ? 'دیدن نتیجه آزمون 🏆'
+                : queue[index + 1]?.retryRound > currentEntry.retryRound
+                  ? 'شروع اصلاح اشتباهات 🔄'
+                  : 'سوال بعدی ⬅'}
             </button>
           </div>
         </div>

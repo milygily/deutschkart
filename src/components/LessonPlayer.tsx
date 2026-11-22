@@ -70,6 +70,7 @@ interface LessonPlayerProps {
 interface QueueItem {
   exercise: Exercise;
   isRetry: boolean;
+  retryRound: number;
 }
 
 interface StepSnapshot {
@@ -153,9 +154,9 @@ export function LessonPlayer({
 }: LessonPlayerProps) {
   const { user, openAuthModal, refreshUser } = useApp();
 
-  // Queue with automatic wrong-answer retry at the end
+  // Queue with automatic Duolingo-style wrong-answer retry rounds until 100% mastered
   const [queue, setQueue] = useState<QueueItem[]>(() =>
-    exercises.map((exercise) => ({ exercise, isRetry: false }))
+    exercises.map((exercise) => ({ exercise, isRetry: false, retryRound: 0 }))
   );
   const [currentIdx, setCurrentIdx] = useState(0);
   const [furthestIdx, setFurthestIdx] = useState(0);
@@ -165,6 +166,12 @@ export function LessonPlayer({
   const completionRecordedRef = useRef(false);
   const [correctFirstTry, setCorrectFirstTry] = useState(0);
   const [answeredFirstTryIds, setAnsweredFirstTryIds] = useState<Set<string>>(() => new Set());
+  const [masteredExerciseIds, setMasteredExerciseIds] = useState<Set<string>>(() => new Set());
+  const [retryIntermission, setRetryIntermission] = useState<{
+    nextIdx: number;
+    round: number;
+    count: number;
+  } | null>(null);
   const [finished, setFinished] = useState(false);
   const [submittingFinish, setSubmittingFinish] = useState(false);
   const [xpResult, setXpResult] = useState<XpFeedback | null>(null);
@@ -199,10 +206,10 @@ export function LessonPlayer({
   const [wrongFlashPair, setWrongFlashPair] = useState<{ left: string; right: string } | null>(null);
   const [matchMistakeCount, setMatchMistakeCount] = useState(0);
 
-  // Reset if exercises prop changes completely
+  // Reset only when the actual exercise IDs change (not on incidental parent re-renders)
   const exercisesKey = useMemo(() => exercises.map((e) => e.id).join('|'), [exercises]);
   useEffect(() => {
-    setQueue(exercises.map((exercise) => ({ exercise, isRetry: false })));
+    setQueue(exercises.map((exercise) => ({ exercise, isRetry: false, retryRound: 0 })));
     setCurrentIdx(0);
     setFurthestIdx(0);
     setHistoryByIdx({});
@@ -211,9 +218,12 @@ export function LessonPlayer({
     completionRecordedRef.current = false;
     setCorrectFirstTry(0);
     setAnsweredFirstTryIds(new Set());
+    setMasteredExerciseIds(new Set());
+    setRetryIntermission(null);
     setFinished(false);
     setXpResult(null);
-  }, [exercisesKey, exercises]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exercisesKey]);
 
   useEffect(() => {
     setSpeechSupported(Boolean(getSpeechRecognitionCtor()));
@@ -402,7 +412,7 @@ export function LessonPlayer({
 
   const recordOutcome = useCallback(
     (isCorrect: boolean, isSkipped = false) => {
-      if (!current) return;
+      if (!current || !currentItem) return;
 
       if (!currentItem.isRetry && !answeredFirstTryIds.has(current.id)) {
         setAnsweredFirstTryIds((prev) => new Set(prev).add(current.id));
@@ -411,9 +421,27 @@ export function LessonPlayer({
         }
       }
 
-      if (!isCorrect && !isSkipped) {
-        // Re-queue wrong answer at the end so the learner masters it!
-        setQueue((prev) => [...prev, { exercise: current, isRetry: true }]);
+      if (isCorrect || isSkipped) {
+        setMasteredExerciseIds((prev) => {
+          const next = new Set(prev);
+          next.add(current.id);
+          return next;
+        });
+      } else {
+        // Duolingo-style infinite mistake loop: re-queue wrong answer into the NEXT retry round
+        // so the lesson CANNOT finish until every single mistake is answered correctly!
+        const nextRound = currentItem.retryRound + 1;
+        setQueue((prev) => [
+          ...prev,
+          {
+            exercise:
+              current.type === 'grammar-cloze'
+                ? { ...current, options: shuffleArray(current.options) }
+                : current,
+            isRetry: true,
+            retryRound: nextRound,
+          },
+        ]);
       }
     },
     [answeredFirstTryIds, current, currentItem]
@@ -652,12 +680,26 @@ export function LessonPlayer({
   const handleContinue = useCallback(async () => {
     if (currentIdx + 1 < queue.length) {
       const next = currentIdx + 1;
+      const curItem = queue[currentIdx];
+      const nextItem = queue[next];
+
+      // Show Duolingo-style intermission screen when transitioning into a Mistake-Retry Round!
+      if (curItem && nextItem && nextItem.retryRound > curItem.retryRound && next > furthestIdx) {
+        const mistakesInNextRound = queue.filter((q) => q.retryRound === nextItem.retryRound).length;
+        setRetryIntermission({
+          nextIdx: next,
+          round: nextItem.retryRound,
+          count: mistakesInNextRound,
+        });
+        return;
+      }
+
       setFurthestIdx((f) => Math.max(f, next));
       setCurrentIdx(next);
       return;
     }
 
-    // Lesson finished! (Guard so reviewing answers after finish never double-awards XP)
+    // Lesson finished! (Only reached once EVERY mistake has been answered correctly!)
     setFinished(true);
     if (completionRecordedRef.current) return;
     completionRecordedRef.current = true;
@@ -686,14 +728,25 @@ export function LessonPlayer({
         setSubmittingFinish(false);
       }
     }
-  }, [correctFirstTry, currentIdx, exercises.length, onComplete, queue.length, refreshUser, xpReward]);
+  }, [correctFirstTry, currentIdx, exercises.length, furthestIdx, onComplete, queue, refreshUser, xpReward]);
+
+  const startRetryRound = useCallback(() => {
+    if (!retryIntermission) return;
+    const { nextIdx } = retryIntermission;
+    setRetryIntermission(null);
+    setFurthestIdx((f) => Math.max(f, nextIdx));
+    setCurrentIdx(nextIdx);
+  }, [retryIntermission]);
 
   // Enter key shortcut for fast desktop practice
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (finished) return;
       if (e.key === 'Enter' && !e.shiftKey) {
-        if (isReviewingPast) {
+        if (retryIntermission) {
+          e.preventDefault();
+          startRetryRound();
+        } else if (isReviewingPast) {
           e.preventDefault();
           if (currentIdx < furthestIdx) navigateToIdx(currentIdx + 1);
           else setFinished(true);
@@ -708,7 +761,7 @@ export function LessonPlayer({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [canCheck, currentIdx, finished, furthestIdx, handleCheck, handleContinue, isReviewingPast, navigateToIdx, status]);
+  }, [canCheck, currentIdx, finished, furthestIdx, handleCheck, handleContinue, isReviewingPast, navigateToIdx, retryIntermission, startRetryRound, status]);
 
   // Correct answer display text for wrong banner
   const correctDisplay = useMemo(() => {
@@ -731,9 +784,20 @@ export function LessonPlayer({
     }
   }, [current]);
 
-  // Progress % based on furthest progress so stepping back to review doesn't shrink the bar
-  const answeredCount = Object.keys(historyByIdx).length;
-  const progressPct = queue.length > 0 ? Math.round((answeredCount / queue.length) * 100) : 0;
+  // Duolingo-style Progress %: ONLY fills up as each exercise is actually MASTERED (answered correctly)!
+  const progressPct =
+    exercises.length > 0 ? Math.min(100, Math.round((masteredExerciseIds.size / exercises.length) * 100)) : 0;
+
+  // Compute clean round-relative position (e.g. "سوال ۳ از ۱۰" or "اصلاح اشتباه ۲ از ۳")
+  const roundPositionInfo = useMemo(() => {
+    if (!currentItem) return { pos: 1, total: exercises.length || 1, round: 0 };
+    const r = currentItem.retryRound;
+    const roundItems = queue
+      .map((item, idx) => ({ item, idx }))
+      .filter((x) => x.item.retryRound === r);
+    const pos = roundItems.findIndex((x) => x.idx === currentIdx) + 1;
+    return { pos: Math.max(1, pos), total: Math.max(1, roundItems.length), round: r };
+  }, [currentIdx, currentItem, exercises.length, queue]);
 
   if (!exercises.length) {
     return (
@@ -746,6 +810,46 @@ export function LessonPlayer({
         >
           بازگشت
         </button>
+      </div>
+    );
+  }
+
+  // Duolingo-style Intermission Screen before Mistake-Retry Round
+  if (retryIntermission) {
+    return (
+      <div className="min-h-[85vh] flex items-center justify-center px-4 py-8 bg-[#f6f8fb]">
+        <motion.div
+          initial={{ scale: 0.92, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="w-full max-w-md rounded-[2.2rem] bg-white border-2 border-amber-200 p-7 shadow-xl text-center space-y-6"
+        >
+          <div className="w-24 h-24 mx-auto rounded-[2rem] bg-gradient-to-br from-amber-400 to-orange-500 border-b-4 border-orange-600 flex items-center justify-center text-5xl shadow-md">
+            🔄
+          </div>
+
+          <div className="space-y-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-black">
+              {retryIntermission.round === 1
+                ? 'مرور اشتباهات این درس'
+                : `دور ${retryIntermission.round} اصلاح اشتباهات`}
+            </span>
+            <h2 className="text-2xl font-black text-slate-800">
+              وقت جبران اشتباهاته! 💪
+            </h2>
+            <p className="text-sm sm:text-base font-bold text-slate-600 leading-relaxed">
+              توی این دور <strong className="text-orange-600">{retryIntermission.count} سوال غلط</strong> داشتی. بیا دوباره بزنیمشون تا همه رو درست حل کنی و بعد درس کامل بشه!
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={startRetryRound}
+            className="btn-3d w-full rounded-2xl bg-gradient-to-l from-amber-500 to-orange-500 border-b-4 border-orange-700 text-white py-4 font-black text-base hover:brightness-105 flex items-center justify-center gap-2 shadow-md"
+          >
+            <RotateCcw className="w-5 h-5" />
+            بزن بریم! (شروع اصلاح {retryIntermission.count} اشتباه)
+          </button>
+        </motion.div>
       </div>
     );
   }
@@ -896,14 +1000,20 @@ export function LessonPlayer({
 
           <div className="flex-1 space-y-1 min-w-0">
             <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-400">
-              <span className="truncate max-w-[65%]">{title}</span>
-              <span className="font-de">
-                {currentIdx + 1} / {queue.length}
+              <span className="truncate max-w-[60%]">{title}</span>
+              <span className={roundPositionInfo.round > 0 ? 'text-orange-600 font-black' : 'font-de'}>
+                {roundPositionInfo.round > 0
+                  ? `🔄 اصلاح اشتباه ${roundPositionInfo.pos} از ${roundPositionInfo.total}`
+                  : `${roundPositionInfo.pos} / ${roundPositionInfo.total}`}
               </span>
             </div>
             <div className="h-3.5 rounded-full bg-slate-200 overflow-hidden">
               <motion.div
-                className="h-full rounded-full bg-gradient-to-l from-emerald-400 to-green-500"
+                className={`h-full rounded-full ${
+                  roundPositionInfo.round > 0
+                    ? 'bg-gradient-to-l from-amber-400 to-orange-500'
+                    : 'bg-gradient-to-l from-emerald-400 to-green-500'
+                }`}
                 animate={{ width: `${Math.max(5, progressPct)}%` }}
                 transition={{ duration: 0.35 }}
               />
@@ -969,9 +1079,11 @@ export function LessonPlayer({
           </div>
         )}
         {currentItem.isRetry && (
-          <div className="mb-3 inline-flex items-center gap-1.5 rounded-xl bg-amber-100 text-amber-800 px-3 py-1 text-xs font-black">
-            <RotateCcw className="w-3.5 h-3.5" />
-            مرور اشتباه قبلی — این بار درست جواب بده!
+          <div className="mb-3 inline-flex items-center gap-1.5 rounded-2xl bg-orange-100 border border-orange-300 text-orange-900 px-3.5 py-1.5 text-xs sm:text-sm font-black">
+            <RotateCcw className="w-4 h-4 text-orange-600" />
+            <span>
+              اشتباه قبلی ({currentItem.retryRound === 1 ? 'دور اصلاح' : `دور ${currentItem.retryRound}`}) — این بار درست جواب بده تا از لیست حذف بشه!
+            </span>
           </div>
         )}
 
@@ -1617,6 +1729,12 @@ export function LessonPlayer({
                   💡 {current.explanationFa}
                 </p>
               )}
+              {status === 'wrong' && !isReviewingPast && (
+                <p className="text-xs font-extrabold text-rose-700 flex items-center gap-1 pt-0.5">
+                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  این سوال آخر همین دور دوباره میاد تا درستش رو بزنی و کامل یاد بگیری!
+                </p>
+              )}
             </motion.div>
           )}
 
@@ -1675,7 +1793,13 @@ export function LessonPlayer({
                     : 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'
               }`}
             >
-              <span>{currentIdx + 1 < queue.length ? 'سوال بعدی' : 'اتمام و دریافت XP'}</span>
+              <span>
+                {currentIdx + 1 < queue.length
+                  ? queue[currentIdx + 1]?.retryRound > currentItem.retryRound
+                    ? 'شروع اصلاح اشتباهات 🔄'
+                    : 'سوال بعدی'
+                  : 'اتمام و دریافت XP'}
+              </span>
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
