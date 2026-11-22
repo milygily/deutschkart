@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     }
 
     // 2. Fast contextual lookup via Gemini Flash (thinking disabled for ~0.5s response)
-    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    const apiKey = process.env.GEMINI_API_KEY?.trim().replace(/^["']|["']$/g, '').trim();
     if (!apiKey) {
       return NextResponse.json({ error: 'GEMINI_API_KEY missing' }, { status: 500 });
     }

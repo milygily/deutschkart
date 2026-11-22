@@ -32,7 +32,7 @@ export function normalizeGermanWord(raw: string): string {
 }
 
 function getClient() {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const apiKey = process.env.GEMINI_API_KEY?.trim().replace(/^["']|["']$/g, '').trim();
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
