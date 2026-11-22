@@ -232,3 +232,11 @@ export const userLessonProgress = pgTable(
   },
   (table) => [uniqueIndex('user_lesson_progress_idx').on(table.userId, table.lessonId)]
 );
+
+export const ttsAudioCache = pgTable('tts_audio_cache', {
+  textHash: text('text_hash').primaryKey(),
+  textContent: text('text_content').notNull(),
+  blobUrl: text('blob_url').notNull(),
+  byteSize: integer('byte_size').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

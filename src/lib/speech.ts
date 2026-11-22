@@ -142,12 +142,16 @@ async function playServerTts(
         setPlayState(onState, 'idle');
         return false;
       }
-      const cloned = res.clone();
       blob = await res.blob();
-      if ('caches' in window) {
+      if ('caches' in window && blob.size > 44) {
+        // Store a clean non-redirected Response in CacheStorage for 100% iOS Safari / PWA reliability
+        const cleanResp = new Response(blob, {
+          status: 200,
+          headers: { 'Content-Type': 'audio/wav' },
+        });
         caches
           .open(TTS_CACHE_NAME)
-          .then((cache) => cache.put(url, cloned))
+          .then((cache) => cache.put(url, cleanResp))
           .catch(() => {});
       }
     }

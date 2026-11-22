@@ -13,6 +13,7 @@
   "dependencies": {
     "@google/genai": "^1.0.0",
     "@neondatabase/serverless": "^1.0.0",
+    "@vercel/blob": "^2.9.0",
     "bcryptjs": "^2.4.3",
     "canvas-confetti": "^1.9.3",
     "drizzle-orm": "^0.41.0",
