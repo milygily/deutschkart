@@ -8,10 +8,11 @@ import { normalizeGermanWord } from '@/lib/gemini';
 export const maxDuration = 30;
 
 const FAST_MODELS = [
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.7-flash',
-  'gemini-3.8-flash',
-  'gemini-flash-latest',
 ];
 
 // Fast in-memory server cache (word::sentence -> result)
@@ -88,7 +89,8 @@ Return ONLY valid JSON:
           });
         } catch (innerErr) {
           const msg = innerErr instanceof Error ? innerErr.message : '';
-          if (/thinking/i.test(msg)) {
+          const status = (innerErr as { status?: number })?.status;
+          if (status === 400 || /INVALID_ARGUMENT|thinking/i.test(msg)) {
             response = await ai.models.generateContent({
               model,
               contents: prompt,
