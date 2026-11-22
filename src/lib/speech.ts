@@ -35,7 +35,7 @@ let activeObjectUrl: string | null = null;
 const SILENT_WAV_DATA_URI =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
-const TTS_CACHE_NAME = 'deutschkart-tts-v1';
+const TTS_CACHE_NAME = 'deutschkart-tts-v2';
 
 function isIOSDevice(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -118,7 +118,7 @@ async function playServerTts(
   const cleanText = text.trim();
   if (!cleanText) return false;
 
-  const url = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+  const url = `/api/tts?v=2&text=${encodeURIComponent(cleanText)}`;
 
   try {
     let blob: Blob | null = null;

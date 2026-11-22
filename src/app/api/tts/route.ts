@@ -81,7 +81,8 @@ async function synthesizeGermanWav(text: string): Promise<Uint8Array> {
     try {
       const res = await ai.models.generateContent({
         model,
-        contents: `Lies genau diesen deutschen Text klar, natürlich und deutlich vor (ohne Zusätze): ${text}`,
+        // Pure TTS models read `contents` verbatim — NEVER put prompt instructions inside `contents`!
+        contents: text,
         config: {
           responseModalities: ['AUDIO'],
           speechConfig: {

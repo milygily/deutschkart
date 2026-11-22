@@ -166,7 +166,7 @@ export async function POST(
         const timer = setTimeout(() => ac.abort(), 28000);
         const res = await ai.models.generateContent({
           model: 'gemini-3.8-flash-lite-tts',
-          contents: `Lies diesen deutschen Lernpodcast ruhig, entspannt und deutlich mit natürlichen Pausen vor:\n\n${plainNarration}`,
+          contents: plainNarration,
           config: {
             responseModalities: ['AUDIO'],
             speechConfig: {
