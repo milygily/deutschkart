@@ -110,12 +110,16 @@ interface InteractiveSentenceProps {
     article: string | null;
     persianMeaning: string;
   };
+  highlightWords?: string[];
+  theme?: 'light' | 'dark';
   className?: string;
 }
 
 export function InteractiveSentence({
   sentence,
   targetCard,
+  highlightWords,
+  theme = 'light',
   className = 'font-de text-sm sm:text-base font-extrabold text-slate-800 leading-relaxed text-left',
 }: InteractiveSentenceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -225,6 +229,21 @@ export function InteractiveSentence({
 
   const artStyle = result?.article ? getArticleStyle(result.article) : null;
 
+  const highlightSet = React.useMemo(() => {
+    if (!highlightWords || highlightWords.length === 0) return null;
+    return highlightWords
+      .map((w) => w.trim().toLowerCase())
+      .filter((w) => w.length >= 3);
+  }, [highlightWords]);
+
+  const isHighlightedToken = (tok: string) => {
+    if (!highlightSet) return false;
+    const lower = tok.toLowerCase();
+    return highlightSet.some((hw) => lower === hw || (hw.length >= 4 && lower.startsWith(hw.slice(0, -1))));
+  };
+
+  const isDark = theme === 'dark';
+
   return (
     <div ref={containerRef} dir="ltr" className={`relative ${className}`}>
       {tokens.map((tok, idx) => {
@@ -233,6 +252,30 @@ export function InteractiveSentence({
           return <span key={idx}>{tok}</span>;
         }
         const isSelected = activeIdx === idx;
+        const isTargetVocab = isHighlightedToken(tok);
+
+        let tokenStyle = '';
+        if (isDark) {
+          if (isSelected) {
+            tokenStyle = 'bg-emerald-400 text-slate-950 decoration-emerald-200';
+          } else if (isTargetVocab) {
+            tokenStyle =
+              'text-emerald-300 decoration-emerald-400/80 hover:bg-white/15';
+          } else {
+            tokenStyle = 'decoration-white/25 hover:bg-white/15 hover:decoration-white/60';
+          }
+        } else {
+          if (isSelected) {
+            tokenStyle = 'bg-emerald-100 text-emerald-800 decoration-emerald-500';
+          } else if (isTargetVocab) {
+            tokenStyle =
+              'bg-emerald-50 text-emerald-700 decoration-emerald-400 hover:bg-emerald-100';
+          } else {
+            tokenStyle =
+              'decoration-slate-300 hover:bg-emerald-50 hover:text-emerald-700 hover:decoration-emerald-400';
+          }
+        }
+
         return (
           <span key={idx} className="relative inline-block">
             <button
@@ -240,11 +283,7 @@ export function InteractiveSentence({
               data-no-flip="true"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => handleWordClick(idx, tok, e)}
-              className={`rounded-md px-0.5 transition cursor-pointer underline decoration-dotted underline-offset-4 ${
-                isSelected
-                  ? 'bg-emerald-100 text-emerald-800 decoration-emerald-500'
-                  : 'decoration-slate-300 hover:bg-emerald-50 hover:text-emerald-700 hover:decoration-emerald-400'
-              }`}
+              className={`rounded-md px-0.5 transition cursor-pointer underline decoration-dotted underline-offset-4 ${tokenStyle}`}
             >
               {tok}
             </button>

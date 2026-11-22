@@ -127,3 +127,18 @@ export const userDeckBookmarks = pgTable(
   },
   (table) => [uniqueIndex('user_deck_bookmark_idx').on(table.userId, table.deckId)]
 );
+
+export const deckStories = pgTable('deck_stories', {
+  id: serial('id').primaryKey(),
+  deckId: integer('deck_id')
+    .notNull()
+    .references(() => decks.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  titleDe: text('title_de').notNull(),
+  titleFa: text('title_fa').notNull(),
+  level: text('level').notNull().default('B1'),
+  lines: jsonb('lines').notNull(),
+  questions: jsonb('questions').notNull(),
+  usedWords: jsonb('used_words').notNull().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

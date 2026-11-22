@@ -20,6 +20,7 @@ import {
   Sparkles,
   Loader2,
   Flame,
+  Headphones,
 } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/AppProvider';
@@ -602,6 +603,14 @@ export default function DeckDetailPage() {
                 >
                   <Layers className="w-5 h-5" />
                   تمرین فلش‌کارت (سوایپ چپ و راست 🃏)
+                </Link>
+
+                <Link
+                  href={`/deck/${deck.id}/story`}
+                  className="btn-3d w-full rounded-2xl bg-gradient-to-l from-rose-500 to-pink-500 border-b-4 border-rose-700 text-white py-4 px-5 flex items-center justify-center gap-2.5 font-black text-base shadow-md hover:brightness-105"
+                >
+                  <Headphones className="w-5 h-5" />
+                  داستان تعاملی و پادکست صوتی 🎧
                 </Link>
 
                 {/* Meaning Quiz — 3 Direction Sub-Buttons */}
