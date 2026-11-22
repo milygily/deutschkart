@@ -1,8 +1,27 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCenter,
+  defaultDropAnimationSideEffects,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+  type DropAnimation,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   X,
   Volume2,
@@ -170,10 +189,77 @@ interface DraggableWordTrayProps {
   onChangeOrder: (updater: (prev: number[]) => number[]) => void;
 }
 
+const TRAY_DROP_ANIMATION: DropAnimation = {
+  duration: 180,
+  easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+  sideEffects: defaultDropAnimationSideEffects({
+    styles: {
+      active: {
+        opacity: '0.35',
+      },
+    },
+  }),
+};
+
+interface SortableWordChipProps {
+  tokenIdx: number;
+  label: string;
+  disabled: boolean;
+  onTapRemove: (tokenIdx: number) => void;
+}
+
+function SortableWordChip({
+  tokenIdx,
+  label,
+  disabled,
+  onTapRemove,
+}: SortableWordChipProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: tokenIdx,
+    disabled,
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    WebkitUserSelect: 'none',
+    WebkitTouchCallout: 'none',
+  };
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      disabled={disabled}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={() => onTapRemove(tokenIdx)}
+      className={`font-de rounded-2xl border-2 border-b-4 px-3.5 py-2 text-sm sm:text-base font-extrabold select-none touch-none transition-colors ${
+        disabled ? 'pointer-events-none' : 'cursor-grab active:cursor-grabbing'
+      } ${
+        isDragging
+          ? 'bg-slate-100 border-dashed border-slate-300 border-b-2 text-transparent shadow-none'
+          : 'bg-sky-50 border-sky-300 text-sky-900 shadow-xs hover:bg-sky-100'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 /**
- * Mobile-first (iOS Touch + Desktop Mouse) drag-and-drop reorderable word tray.
- * - Quick tap (< 8px movement): removes the word back to the bank.
- * - Hold & drag (>= 8px): live-reorders across wrapped rows with floating ghost pill!
+ * Duolingo-grade mobile (iOS Touch) + Desktop drag-and-drop reorderable word tray
+ * powered by @dnd-kit SortableContext + DragOverlay:
+ * - Quick tap (< 6px movement): removes the word back to the bank cleanly.
+ * - Drag (>= 6px): silky 60fps GPU-translated multi-row reordering with zero stuck ghosts or flicker.
  */
 function DraggableWordTray({
   selectedTokenIndices,
@@ -182,145 +268,143 @@ function DraggableWordTray({
   placeholderFa,
   onChangeOrder,
 }: DraggableWordTrayProps) {
-  const dragRef = useRef<{
-    active: boolean;
-    dragging: boolean;
-    pointerId: number;
-    pos: number;
-    tokenIdx: number;
-    startX: number;
-    startY: number;
-  } | null>(null);
+  const dndId = useId();
+  const [activeTokenIdx, setActiveTokenIdx] = useState<number | null>(null);
+  const wasDraggingRef = useRef(false);
+  const clearDragFlagTimerRef = useRef<number | null>(null);
 
-  const [draggingPos, setDraggingPos] = useState<number | null>(null);
-  const [ghost, setGhost] = useState<{ text: string; x: number; y: number } | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    })
+  );
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>, pos: number, tokenIdx: number) => {
-    if (status !== 'idle') return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = {
-      active: true,
-      dragging: false,
-      pointerId: e.pointerId,
-      pos,
-      tokenIdx,
-      startX: e.clientX,
-      startY: e.clientY,
+  // Guarantee no stale overlay ever lingers if question status changes mid-drag
+  useEffect(() => {
+    if (status !== 'idle' || (activeTokenIdx !== null && !selectedTokenIndices.includes(activeTokenIdx))) {
+      setActiveTokenIdx(null);
+    }
+  }, [status, activeTokenIdx, selectedTokenIndices]);
+
+  useEffect(() => {
+    return () => {
+      if (clearDragFlagTimerRef.current !== null) {
+        window.clearTimeout(clearDragFlagTimerRef.current);
+      }
     };
-  };
+  }, []);
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const st = dragRef.current;
-    if (!st || !st.active || st.pointerId !== e.pointerId) return;
-
-    const dx = e.clientX - st.startX;
-    const dy = e.clientY - st.startY;
-    if (!st.dragging && Math.hypot(dx, dy) >= 8) {
-      st.dragging = true;
-      setDraggingPos(st.pos);
+  const scheduleClearDragFlag = useCallback(() => {
+    if (clearDragFlagTimerRef.current !== null) {
+      window.clearTimeout(clearDragFlagTimerRef.current);
     }
+    clearDragFlagTimerRef.current = window.setTimeout(() => {
+      wasDraggingRef.current = false;
+      clearDragFlagTimerRef.current = null;
+    }, 90);
+  }, []);
 
-    if (st.dragging) {
-      setGhost({ text: activeTokens[st.tokenIdx] || '', x: e.clientX, y: e.clientY });
-
-      // Find which chip in the tray the finger/cursor is currently over (works across wrapped lines!)
-      const els = document.elementsFromPoint(e.clientX, e.clientY);
-      const hitEl = els.find(
-        (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.trayPos !== undefined
-      );
-      if (hitEl) {
-        const targetPos = Number(hitEl.dataset.trayPos);
-        if (!Number.isNaN(targetPos) && targetPos !== st.pos) {
-          const fromPos = st.pos;
-          st.pos = targetPos;
-          setDraggingPos(targetPos);
-          onChangeOrder((prev) => {
-            if (fromPos < 0 || fromPos >= prev.length || targetPos < 0 || targetPos >= prev.length) {
-              return prev;
-            }
-            const next = [...prev];
-            const [moved] = next.splice(fromPos, 1);
-            next.splice(targetPos, 0, moved);
-            return next;
-          });
-        }
-      }
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    if (clearDragFlagTimerRef.current !== null) {
+      window.clearTimeout(clearDragFlagTimerRef.current);
+      clearDragFlagTimerRef.current = null;
     }
-  };
+    wasDraggingRef.current = true;
+    setActiveTokenIdx(Number(event.active.id));
+  }, []);
 
-  const finishPointer = (e: React.PointerEvent<HTMLButtonElement>, cancelled = false) => {
-    const st = dragRef.current;
-    if (!st || st.pointerId !== e.pointerId) return;
-    const wasDragging = st.dragging;
-    const finalPos = st.pos;
-    dragRef.current = null;
-    setDraggingPos(null);
-    setGhost(null);
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      setActiveTokenIdx(null);
+      scheduleClearDragFlag();
 
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      // ignore
-    }
+      if (!over || active.id === over.id) return;
 
-    // Quick tap (didn't drag) -> remove chip back to word bank
-    if (!cancelled && !wasDragging && status === 'idle') {
-      onChangeOrder((prev) => prev.filter((_, p) => p !== finalPos));
-    }
-  };
+      const activeId = Number(active.id);
+      const overId = Number(over.id);
+
+      onChangeOrder((prev) => {
+        const oldIndex = prev.indexOf(activeId);
+        const newIndex = prev.indexOf(overId);
+        if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return prev;
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    },
+    [onChangeOrder, scheduleClearDragFlag]
+  );
+
+  const handleDragCancel = useCallback(() => {
+    setActiveTokenIdx(null);
+    scheduleClearDragFlag();
+  }, [scheduleClearDragFlag]);
+
+  const handleTapRemove = useCallback(
+    (tokenIdx: number) => {
+      if (status !== 'idle' || wasDraggingRef.current) return;
+      onChangeOrder((prev) => prev.filter((id) => id !== tokenIdx));
+    },
+    [status, onChangeOrder]
+  );
 
   return (
     <>
-      <div
-        dir="ltr"
-        className={`min-h-[84px] rounded-3xl border-2 border-dashed p-3.5 flex flex-wrap items-center gap-2 transition ${
-          status === 'correct'
-            ? 'bg-emerald-50 border-emerald-400'
-            : status === 'wrong'
-              ? 'bg-rose-50 border-rose-400'
-              : 'bg-white border-slate-300'
-        }`}
+      <DndContext
+        id={dndId}
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        autoScroll={false}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
-        {selectedTokenIndices.length === 0 ? (
-          <span className="text-sm font-bold text-slate-400 w-full text-center" dir="rtl">
-            {placeholderFa}
-          </span>
-        ) : (
-          selectedTokenIndices.map((tokenIdx, pos) => {
-            const isBeingDragged = draggingPos === pos;
-            return (
-              <motion.button
-                key={`sel-${tokenIdx}`}
-                layout
-                transition={{ type: 'spring', stiffness: 520, damping: 36 }}
-                data-tray-pos={pos}
-                type="button"
-                disabled={status !== 'idle'}
-                onPointerDown={(e) => handlePointerDown(e, pos, tokenIdx)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={(e) => finishPointer(e, false)}
-                onPointerCancel={(e) => finishPointer(e, true)}
-                className={`font-de rounded-2xl border-2 border-b-4 px-3.5 py-2 text-sm sm:text-base font-extrabold select-none touch-none transition ${
-                  status === 'idle' ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'
-                } ${
-                  isBeingDragged
-                    ? 'bg-sky-100/60 border-dashed border-sky-400 text-sky-400 scale-95'
-                    : 'bg-sky-50 border-sky-300 text-sky-900 shadow-xs hover:bg-sky-100'
-                }`}
-              >
-                {activeTokens[tokenIdx]}
-              </motion.button>
-            );
-          })
-        )}
-      </div>
+        <div
+          dir="ltr"
+          className={`min-h-[84px] rounded-3xl border-2 border-dashed p-3.5 flex flex-wrap items-center gap-2 transition-colors ${
+            status === 'correct'
+              ? 'bg-emerald-50 border-emerald-400'
+              : status === 'wrong'
+                ? 'bg-rose-50 border-rose-400'
+                : 'bg-white border-slate-300'
+          }`}
+        >
+          {selectedTokenIndices.length === 0 ? (
+            <span className="text-sm font-bold text-slate-400 w-full text-center" dir="rtl">
+              {placeholderFa}
+            </span>
+          ) : (
+            <SortableContext items={selectedTokenIndices} strategy={rectSortingStrategy}>
+              {selectedTokenIndices.map((tokenIdx) => (
+                <SortableWordChip
+                  key={`sel-${tokenIdx}`}
+                  tokenIdx={tokenIdx}
+                  label={activeTokens[tokenIdx] || ''}
+                  disabled={status !== 'idle'}
+                  onTapRemove={handleTapRemove}
+                />
+              ))}
+            </SortableContext>
+          )}
+        </div>
+
+        <DragOverlay dropAnimation={TRAY_DROP_ANIMATION} zIndex={60}>
+          {activeTokenIdx !== null ? (
+            <div
+              dir="ltr"
+              className="font-de rounded-2xl bg-sky-500 border-2 border-sky-600 border-b-4 text-white px-3.5 py-2 text-sm sm:text-base font-black shadow-xl scale-[1.06] cursor-grabbing select-none"
+            >
+              {activeTokens[activeTokenIdx] || ''}
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {selectedTokenIndices.length >= 2 && status === 'idle' && (
         <div className="flex items-center justify-between gap-2 px-1">
           <span className="text-[11px] sm:text-xs font-bold text-slate-400">
-            ↔️ برای جابه‌جایی، کلمه را نگه دار و بکش · برای حذف، ضربه بزن
+            ↔️ کلمه را بکش و جابه‌جا کن · برای حذف، ضربه بزن
           </span>
           <button
             type="button"
@@ -330,21 +414,6 @@ function DraggableWordTray({
             <Eraser className="w-3.5 h-3.5" />
             پاک کردن همه
           </button>
-        </div>
-      )}
-
-      {/* Floating ghost pill following the user's finger/cursor smoothly */}
-      {ghost && (
-        <div
-          dir="ltr"
-          style={{
-            left: ghost.x,
-            top: ghost.y - 26,
-            transform: 'translate(-50%, -50%) scale(1.08)',
-          }}
-          className="pointer-events-none fixed z-50 font-de rounded-2xl bg-sky-500 border-2 border-sky-600 border-b-4 text-white px-4 py-2 text-base font-black shadow-2xl"
-        >
-          {ghost.text}
         </div>
       )}
     </>
