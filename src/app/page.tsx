@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Sparkles, Star, Camera, Layers, ChevronLeft, BookOpen } from 'lucide-react';
+import { Sparkles, Star, Camera, Layers, ChevronLeft, BookOpen, Flame } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/AppProvider';
+import { STAGE_META, STAGE_ORDER } from '@/lib/leitner';
 import type { DeckSummary } from '@/lib/types';
 
 const LEVEL_TABS = [
@@ -207,8 +208,13 @@ export default function HomePage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredDecks.map((deck) => {
                 const style = COLOR_STYLES[deck.color] || COLOR_STYLES.emerald;
-                const pct =
-                  deck.cardCount > 0 ? Math.round((deck.masteredCount / deck.cardCount) * 100) : 0;
+                const sc = deck.stageCounts || {
+                  new: deck.cardCount,
+                  learning: 0,
+                  familiar: 0,
+                  learned: 0,
+                  mastered: 0,
+                };
 
                 return (
                   <Link
@@ -223,7 +229,13 @@ export default function HomePage() {
                         >
                           {deck.icon}
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                          {deck.dueCount > 0 && (
+                            <span className="inline-flex items-center gap-0.5 text-[11px] font-black bg-orange-100 text-orange-700 px-2 py-1 rounded-xl">
+                              <Flame className="w-3.5 h-3.5 fill-orange-500 text-orange-500" />
+                              {deck.dueCount} امروز
+                            </span>
+                          )}
                           <span
                             className={`font-de text-xs font-black px-2.5 py-1 rounded-xl ${style.badge}`}
                           >
@@ -260,11 +272,22 @@ export default function HomePage() {
                           <ChevronLeft className="w-4 h-4" />
                         </span>
                       </div>
-                      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${style.bar} transition-all`}
-                          style={{ width: `${pct}%` }}
-                        />
+                      {/* 5-Stage Segmented Mastery Bar */}
+                      <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden flex">
+                        {deck.cardCount > 0 &&
+                          STAGE_ORDER.map((stage) => {
+                            const count = sc[stage] || 0;
+                            if (count === 0) return null;
+                            const pct = (count / deck.cardCount) * 100;
+                            return (
+                              <div
+                                key={stage}
+                                className={`h-full ${STAGE_META[stage].barClass}`}
+                                style={{ width: `${pct}%` }}
+                                title={`${STAGE_META[stage].label}: ${count}`}
+                              />
+                            );
+                          })}
                       </div>
                     </div>
                   </Link>

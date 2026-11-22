@@ -12,7 +12,6 @@ import {
   Palette,
   Zap,
   Trash2,
-  CheckCircle2,
   BookOpen,
   Pencil,
   Plus,
@@ -20,10 +19,18 @@ import {
   X,
   Sparkles,
   Loader2,
+  Flame,
 } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/AppProvider';
 import { formatGermanDisplay, getArticleStyle, type WordCard } from '@/lib/types';
+import {
+  formatNextReviewFa,
+  getStageFromBox,
+  isCardDue,
+  STAGE_META,
+  STAGE_ORDER,
+} from '@/lib/leitner';
 import { speakGerman } from '@/lib/speech';
 
 interface DeckDetail {
@@ -50,7 +57,7 @@ export default function DeckDetailPage() {
   const params = useParams();
   const router = useRouter();
   const deckId = Number(params.id);
-  const { user, showEnglish, starredIds, toggleStar, masteredIds } = useApp();
+  const { user, showEnglish, starredIds, toggleStar, guestProgress } = useApp();
 
   const [deck, setDeck] = useState<DeckDetail | null>(null);
   const [cards, setCards] = useState<WordCard[]>([]);
@@ -300,9 +307,24 @@ export default function DeckDetailPage() {
   const nounCount = cards.filter(
     (c) => c.article === 'der' || c.article === 'die' || c.article === 'das'
   ).length;
-  const masteredCount = cards.filter(
-    (c) => c.progress?.mastered || masteredIds.has(c.id)
-  ).length;
+
+  const stageCounts = { new: 0, learning: 0, familiar: 0, learned: 0, mastered: 0 };
+  let dueCount = 0;
+
+  const getEffectiveBoxAndDue = (card: WordCard) => {
+    const box = user
+      ? card.progress?.leitnerBox ?? 0
+      : guestProgress[card.id]?.leitnerBox ?? 0;
+    const dueAt = user ? card.progress?.dueAt ?? null : guestProgress[card.id]?.dueAt ?? null;
+    return { box, dueAt };
+  };
+
+  for (const c of cards) {
+    const { box, dueAt } = getEffectiveBoxAndDue(c);
+    const stage = getStageFromBox(box);
+    stageCounts[stage]++;
+    if (isCardDue(box, dueAt)) dueCount++;
+  }
 
   return (
     <div className="min-h-screen pb-24">
@@ -449,7 +471,7 @@ export default function DeckDetailPage() {
                         {deck.level === 'CUSTOM' ? 'دسته شخصی ✨' : deck.level}
                       </span>
                       <span className="text-xs font-bold text-slate-400">
-                        {cards.length} کلمه · {masteredCount} حفظ‌شده
+                        {cards.length} کلمه
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -471,8 +493,59 @@ export default function DeckDetailPage() {
                 </div>
               )}
 
+              {/* 5-Stage Leitner Mastery Breakdown */}
+              {cards.length > 0 && (
+                <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-4 space-y-3">
+                  {/* Segmented Colorful Bar */}
+                  <div className="h-3.5 rounded-full bg-slate-200 overflow-hidden flex">
+                    {STAGE_ORDER.map((stage) => {
+                      const count = stageCounts[stage];
+                      if (count === 0) return null;
+                      const pct = (count / cards.length) * 100;
+                      return (
+                        <div
+                          key={stage}
+                          className={`h-full transition-all duration-300 ${STAGE_META[stage].barClass}`}
+                          style={{ width: `${pct}%` }}
+                          title={`${STAGE_META[stage].label}: ${count}`}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  {/* Stage Counters */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {STAGE_ORDER.map((stage) => {
+                      const meta = STAGE_META[stage];
+                      const count = stageCounts[stage];
+                      return (
+                        <span
+                          key={stage}
+                          className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-xs font-extrabold ${meta.pillClass} ${
+                            count === 0 ? 'opacity-50' : ''
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${meta.dotClass}`} />
+                          <span>{count}</span>
+                          <span>{meta.label}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Action Modes */}
               <div className="space-y-3 pt-1">
+                {dueCount > 0 && (
+                  <Link
+                    href={`/deck/${deck.id}/study?onlyDue=1`}
+                    className="btn-3d w-full rounded-2xl bg-gradient-to-l from-orange-500 to-amber-500 border-b-4 border-orange-700 text-white py-4 px-5 flex items-center justify-center gap-2 font-black text-base shadow-md hover:brightness-105"
+                  >
+                    <Flame className="w-5 h-5 fill-white" />
+                    <span>مرور کلمات امروز ({dueCount} کارت نوبت مرورشونه 🔥)</span>
+                  </Link>
+                )}
                 <Link
                   href={`/deck/${deck.id}/browse`}
                   className="btn-3d w-full rounded-2xl bg-teal-500 border-b-4 border-teal-700 text-white py-4 px-5 flex items-center justify-center gap-2.5 font-black text-base shadow-md hover:bg-teal-400 flex-wrap"
@@ -724,7 +797,10 @@ export default function DeckDetailPage() {
                 {cards.map((card) => {
                   const art = getArticleStyle(card.article);
                   const isStarred = starredIds.has(card.id);
-                  const isMastered = card.progress?.mastered || masteredIds.has(card.id);
+                  const { box, dueAt } = getEffectiveBoxAndDue(card);
+                  const stage = getStageFromBox(box);
+                  const stageMeta = STAGE_META[stage];
+                  const nextReviewText = formatNextReviewFa(box, dueAt);
                   const isEditingThis = Boolean(
                     canEdit && card.deckCardId && editingCardId === card.deckCardId
                   );
@@ -853,9 +929,6 @@ export default function DeckDetailPage() {
                               ({card.plural})
                             </span>
                           )}
-                          {isMastered && (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                          )}
                         </div>
 
                         <div className="text-sm font-bold text-slate-600">
@@ -867,14 +940,27 @@ export default function DeckDetailPage() {
                           )}
                         </div>
 
-                        {card.verbForms && (
-                          <div
-                            dir="ltr"
-                            className="font-de text-[11px] font-semibold text-violet-500 text-right"
+                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-extrabold ${stageMeta.pillClass}`}
                           >
-                            {card.verbForms}
-                          </div>
-                        )}
+                            <span className={`w-1.5 h-1.5 rounded-full ${stageMeta.dotClass}`} />
+                            {stageMeta.label}
+                          </span>
+                          {nextReviewText && (
+                            <span className="text-[11px] font-bold text-slate-400">
+                              {nextReviewText}
+                            </span>
+                          )}
+                          {card.verbForms && (
+                            <span
+                              dir="ltr"
+                              className="font-de text-[11px] font-semibold text-violet-500"
+                            >
+                              · {card.verbForms}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">

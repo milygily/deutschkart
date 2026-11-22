@@ -13,6 +13,7 @@ export interface WordCard {
   level: string | null;
   starred?: boolean;
   progress?: {
+    leitnerBox: number;
     reps: number;
     lapses: number;
     quizCorrect: number;
@@ -20,6 +21,14 @@ export interface WordCard {
     mastered: boolean;
     dueAt: string;
   } | null;
+}
+
+export interface StageCounts {
+  new: number;
+  learning: number;
+  familiar: number;
+  learned: number;
+  mastered: number;
 }
 
 export interface DeckSummary {
@@ -35,6 +44,8 @@ export interface DeckSummary {
   cardCount: number;
   masteredCount: number;
   nounCount: number;
+  dueCount: number;
+  stageCounts: StageCounts;
 }
 
 export interface AppUser {

@@ -59,6 +59,7 @@ export async function GET(
     const progressMap = new Map<
       number,
       {
+        leitnerBox: number;
         reps: number;
         lapses: number;
         quizCorrect: number;
@@ -83,6 +84,7 @@ export async function GET(
         );
       for (const p of progs) {
         progressMap.set(p.wordId, {
+          leitnerBox: p.leitnerBox,
           reps: p.reps,
           lapses: p.lapses,
           quizCorrect: p.quizCorrect,

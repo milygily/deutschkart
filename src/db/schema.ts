@@ -86,6 +86,7 @@ export const userCardProgress = pgTable(
       .references(() => globalWords.id, { onDelete: 'cascade' }),
     fsrsState: jsonb('fsrs_state'),
     dueAt: timestamp('due_at').defaultNow().notNull(),
+    leitnerBox: integer('leitner_box').notNull().default(0),
     reps: integer('reps').notNull().default(0),
     lapses: integer('lapses').notNull().default(0),
     quizCorrect: integer('quiz_correct').notNull().default(0),

@@ -4,6 +4,7 @@ import { decks, deckCards, globalWords, userCardProgress } from '@/db/schema';
 import { eq, or, asc, inArray } from 'drizzle-orm';
 import { getCurrentUser } from '@/lib/auth';
 import { normalizeGermanWord, type GeneratedWordCard } from '@/lib/gemini';
+import { getStageFromBox, isCardDue } from '@/lib/leitner';
 
 export async function GET() {
   try {
@@ -34,17 +35,37 @@ export async function GET() {
       .innerJoin(globalWords, eq(deckCards.wordId, globalWords.id))
       .where(inArray(deckCards.deckId, deckIds));
 
-    let masteredWordIds = new Set<number>();
+    const progMap = new Map<number, { leitnerBox: number; dueAt: Date; mastered: boolean }>();
     if (user) {
       const prog = await db
-        .select({ wordId: userCardProgress.wordId, mastered: userCardProgress.mastered })
+        .select({
+          wordId: userCardProgress.wordId,
+          leitnerBox: userCardProgress.leitnerBox,
+          dueAt: userCardProgress.dueAt,
+          mastered: userCardProgress.mastered,
+        })
         .from(userCardProgress)
         .where(eq(userCardProgress.userId, user.id));
-      masteredWordIds = new Set(prog.filter((p) => p.mastered).map((p) => p.wordId));
+      for (const p of prog) {
+        progMap.set(p.wordId, p);
+      }
     }
 
     const summaries = deckRows.map((d) => {
       const cardsInDeck = links.filter((l) => l.deckId === d.id);
+      const stageCounts = { new: 0, learning: 0, familiar: 0, learned: 0, mastered: 0 };
+      let dueCount = 0;
+
+      for (const c of cardsInDeck) {
+        const p = progMap.get(c.wordId);
+        const box = p?.leitnerBox ?? 0;
+        const stage = getStageFromBox(box);
+        stageCounts[stage]++;
+        if (isCardDue(box, p?.dueAt)) {
+          dueCount++;
+        }
+      }
+
       return {
         id: d.id,
         slug: d.slug,
@@ -56,8 +77,12 @@ export async function GET() {
         color: d.color,
         isSystem: d.isSystem,
         cardCount: cardsInDeck.length,
-        nounCount: cardsInDeck.filter((c) => c.article === 'der' || c.article === 'die' || c.article === 'das').length,
-        masteredCount: cardsInDeck.filter((c) => masteredWordIds.has(c.wordId)).length,
+        nounCount: cardsInDeck.filter(
+          (c) => c.article === 'der' || c.article === 'die' || c.article === 'das'
+        ).length,
+        masteredCount: stageCounts.learned + stageCounts.mastered,
+        dueCount,
+        stageCounts,
       };
     });
 

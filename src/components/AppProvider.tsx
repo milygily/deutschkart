@@ -2,7 +2,13 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { AppUser } from '@/lib/types';
+import { advanceLeitner } from '@/lib/leitner';
 import { AuthModal } from './AuthModal';
+
+export interface LocalCardProgress {
+  leitnerBox: number;
+  dueAt: string;
+}
 
 interface AppContextValue {
   user: AppUser | null;
@@ -12,6 +18,7 @@ interface AppContextValue {
   starredIds: Set<number>;
   toggleStar: (wordId: number) => Promise<boolean>;
   masteredIds: Set<number>;
+  guestProgress: Record<number, LocalCardProgress>;
   recordSwipe: (wordId: number, outcome: 'know' | 'practice') => Promise<void>;
   recordQuiz: (wordId: number, correct: boolean) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -24,6 +31,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 const LS_SHOW_EN = 'dk_show_english';
 const LS_STARRED = 'dk_guest_starred';
 const LS_MASTERED = 'dk_guest_mastered';
+const LS_PROGRESS = 'dk_guest_progress_v2';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
@@ -31,6 +39,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [showEnglish, setShowEnglishState] = useState(false);
   const [starredIds, setStarredIds] = useState<Set<number>>(new Set());
   const [masteredIds, setMasteredIds] = useState<Set<number>>(new Set());
+  const [guestProgress, setGuestProgress] = useState<Record<number, LocalCardProgress>>({});
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalReason, setAuthModalReason] = useState<string | undefined>();
 
@@ -44,6 +53,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const savedMastered = JSON.parse(localStorage.getItem(LS_MASTERED) || '[]');
       if (Array.isArray(savedMastered)) setMasteredIds(new Set(savedMastered.map(Number)));
+
+      const savedProg = JSON.parse(localStorage.getItem(LS_PROGRESS) || '{}');
+      if (savedProg && typeof savedProg === 'object') setGuestProgress(savedProg);
     } catch {
       // ignore storage errors
     }
@@ -132,6 +144,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [user]
   );
 
+  const updateGuestLeitner = useCallback((wordId: number, correct: boolean) => {
+    setGuestProgress((prev) => {
+      const cur = prev[wordId];
+      const { nextBox, nextDueAt, mastered } = advanceLeitner(
+        cur?.leitnerBox ?? 0,
+        cur?.dueAt ? new Date(cur.dueAt) : null,
+        correct
+      );
+      const updated = {
+        ...prev,
+        [wordId]: { leitnerBox: nextBox, dueAt: nextDueAt.toISOString() },
+      };
+      try {
+        localStorage.setItem(LS_PROGRESS, JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      setMasteredIds((mPrev) => {
+        const mNext = new Set(mPrev);
+        if (mastered) mNext.add(wordId);
+        else mNext.delete(wordId);
+        return mNext;
+      });
+      return updated;
+    });
+  }, []);
+
   const recordSwipe = useCallback(
     async (wordId: number, outcome: 'know' | 'practice') => {
       if (user) {
@@ -150,20 +189,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
         }
       } else {
-        setMasteredIds((prev) => {
-          const next = new Set(prev);
-          if (outcome === 'know') next.add(wordId);
-          else next.delete(wordId);
-          try {
-            localStorage.setItem(LS_MASTERED, JSON.stringify(Array.from(next)));
-          } catch {
-            // ignore
-          }
-          return next;
-        });
+        updateGuestLeitner(wordId, outcome === 'know');
       }
     },
-    [user]
+    [updateGuestLeitner, user]
   );
 
   const recordQuiz = useCallback(
@@ -183,20 +212,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             return next;
           });
         }
-      } else if (correct) {
-        setMasteredIds((prev) => {
-          const next = new Set(prev);
-          next.add(wordId);
-          try {
-            localStorage.setItem(LS_MASTERED, JSON.stringify(Array.from(next)));
-          } catch {
-            // ignore
-          }
-          return next;
-        });
+      } else {
+        updateGuestLeitner(wordId, correct);
       }
     },
-    [user]
+    [updateGuestLeitner, user]
   );
 
   const openAuthModal = useCallback((reason?: string) => {
@@ -220,6 +240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         starredIds,
         toggleStar,
         masteredIds,
+        guestProgress,
         recordSwipe,
         recordQuiz,
         refreshUser,

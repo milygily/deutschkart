@@ -3,13 +3,12 @@ import { db } from '@/db';
 import { userCardProgress } from '@/db/schema';
 import { and, eq } from 'drizzle-orm';
 import { getCurrentUser, touchUserStreak } from '@/lib/auth';
-import { computeNextFsrs, isCardMastered } from '@/lib/fsrs';
+import { advanceLeitner } from '@/lib/leitner';
 
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) {
-      // Guest mode handles progress locally in browser without failing
       return NextResponse.json({ ok: true, guest: true });
     }
 
@@ -28,23 +27,21 @@ export async function POST(req: Request) {
       .limit(1);
 
     const existing = existingRows[0];
+    const currentBox = existing?.leitnerBox ?? 0;
+    const currentDueAt = existing?.dueAt ?? null;
 
     if (kind === 'swipe') {
-      const outcome = body.outcome === 'know' ? 'know' : 'practice';
-      const { nextCard, dueAt, reps, lapses } = computeNextFsrs(existing?.fsrsState, outcome);
-      const quizCorrect = existing?.quizCorrect ?? 0;
-      const quizWrong = existing?.quizWrong ?? 0;
-      const mastered =
-        outcome === 'practice'
-          ? false
-          : isCardMastered(reps, quizCorrect, nextCard.stability);
+      const correct = body.outcome === 'know';
+      const { nextBox, nextDueAt, mastered } = advanceLeitner(currentBox, currentDueAt, correct);
+      const reps = (existing?.reps ?? 0) + (correct ? 1 : 0);
+      const lapses = (existing?.lapses ?? 0) + (correct ? 0 : 1);
 
       if (existing) {
         await db
           .update(userCardProgress)
           .set({
-            fsrsState: nextCard,
-            dueAt,
+            leitnerBox: nextBox,
+            dueAt: nextDueAt,
             reps,
             lapses,
             mastered,
@@ -55,32 +52,43 @@ export async function POST(req: Request) {
         await db.insert(userCardProgress).values({
           userId: user.id,
           wordId,
-          fsrsState: nextCard,
-          dueAt,
+          fsrsState: null,
+          leitnerBox: nextBox,
+          dueAt: nextDueAt,
           reps,
           lapses,
-          quizCorrect,
-          quizWrong,
+          quizCorrect: 0,
+          quizWrong: 0,
           mastered,
         });
       }
 
       await touchUserStreak(user.id);
-      return NextResponse.json({ ok: true, mastered, dueAt: dueAt.toISOString(), reps });
+      return NextResponse.json({
+        ok: true,
+        leitnerBox: nextBox,
+        mastered,
+        dueAt: nextDueAt.toISOString(),
+        reps,
+      });
     }
 
     if (kind === 'quiz') {
       const correct = Boolean(body.correct);
-      const reps = existing?.reps ?? 0;
-      const lapses = existing?.lapses ?? 0;
+      const { nextBox, nextDueAt, mastered } = advanceLeitner(currentBox, currentDueAt, correct);
+      const reps = (existing?.reps ?? 0) + (correct ? 1 : 0);
+      const lapses = (existing?.lapses ?? 0) + (correct ? 0 : 1);
       const quizCorrect = (existing?.quizCorrect ?? 0) + (correct ? 1 : 0);
       const quizWrong = (existing?.quizWrong ?? 0) + (correct ? 0 : 1);
-      const mastered = correct ? isCardMastered(Math.max(reps, 1), quizCorrect) : false;
 
       if (existing) {
         await db
           .update(userCardProgress)
           .set({
+            leitnerBox: nextBox,
+            dueAt: nextDueAt,
+            reps,
+            lapses,
             quizCorrect,
             quizWrong,
             mastered,
@@ -92,9 +100,10 @@ export async function POST(req: Request) {
           userId: user.id,
           wordId,
           fsrsState: null,
-          dueAt: new Date(),
-          reps: correct ? 1 : 0,
-          lapses: correct ? 0 : 1,
+          leitnerBox: nextBox,
+          dueAt: nextDueAt,
+          reps,
+          lapses,
           quizCorrect,
           quizWrong,
           mastered,
@@ -102,7 +111,14 @@ export async function POST(req: Request) {
       }
 
       await touchUserStreak(user.id);
-      return NextResponse.json({ ok: true, mastered, quizCorrect, quizWrong });
+      return NextResponse.json({
+        ok: true,
+        leitnerBox: nextBox,
+        mastered,
+        dueAt: nextDueAt.toISOString(),
+        quizCorrect,
+        quizWrong,
+      });
     }
 
     return NextResponse.json({ error: 'نوع عملیات نامعتبر است.' }, { status: 400 });
