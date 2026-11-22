@@ -147,7 +147,7 @@ async function playServerTts(
         // Store a clean non-redirected Response in CacheStorage for 100% iOS Safari / PWA reliability
         const cleanResp = new Response(blob, {
           status: 200,
-          headers: { 'Content-Type': 'audio/wav' },
+          headers: { 'Content-Type': res.headers.get('content-type') || blob.type || 'audio/mp4' },
         });
         caches
           .open(TTS_CACHE_NAME)

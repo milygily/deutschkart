@@ -16,7 +16,13 @@ const MAX_URL_CACHE = 1000;
 const inflightSynthesis = new Map<string, Promise<{ wav: Uint8Array; blobUrl: string | null }>>();
 
 function hashText(normalizedText: string): string {
-  return crypto.createHash('sha256').update(`v2:${normalizedText}`).digest('hex').slice(0, 32);
+  // Normalize case & edge punctuation so "Obwohl", "obwohl", and "obwohl." share 1 single cached Blob file!
+  const canonical = normalizedText
+    .toLowerCase()
+    .replace(/^[.,!?;:„“"'«»()[\]]+|[.,!?;:„“"'«»()[\]]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return crypto.createHash('sha256').update(`v2:${canonical}`).digest('hex').slice(0, 32);
 }
 
 function rememberBlobUrl(hash: string, url: string) {

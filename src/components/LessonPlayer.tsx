@@ -162,6 +162,195 @@ function shuffleArray<T>(arr: T[]): T[] {
   return copy;
 }
 
+interface DraggableWordTrayProps {
+  selectedTokenIndices: number[];
+  activeTokens: string[];
+  status: 'idle' | 'correct' | 'wrong' | 'skipped';
+  placeholderFa: string;
+  onChangeOrder: (updater: (prev: number[]) => number[]) => void;
+}
+
+/**
+ * Mobile-first (iOS Touch + Desktop Mouse) drag-and-drop reorderable word tray.
+ * - Quick tap (< 8px movement): removes the word back to the bank.
+ * - Hold & drag (>= 8px): live-reorders across wrapped rows with floating ghost pill!
+ */
+function DraggableWordTray({
+  selectedTokenIndices,
+  activeTokens,
+  status,
+  placeholderFa,
+  onChangeOrder,
+}: DraggableWordTrayProps) {
+  const dragRef = useRef<{
+    active: boolean;
+    dragging: boolean;
+    pointerId: number;
+    pos: number;
+    tokenIdx: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+
+  const [draggingPos, setDraggingPos] = useState<number | null>(null);
+  const [ghost, setGhost] = useState<{ text: string; x: number; y: number } | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>, pos: number, tokenIdx: number) => {
+    if (status !== 'idle') return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      active: true,
+      dragging: false,
+      pointerId: e.pointerId,
+      pos,
+      tokenIdx,
+      startX: e.clientX,
+      startY: e.clientY,
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const st = dragRef.current;
+    if (!st || !st.active || st.pointerId !== e.pointerId) return;
+
+    const dx = e.clientX - st.startX;
+    const dy = e.clientY - st.startY;
+    if (!st.dragging && Math.hypot(dx, dy) >= 8) {
+      st.dragging = true;
+      setDraggingPos(st.pos);
+    }
+
+    if (st.dragging) {
+      setGhost({ text: activeTokens[st.tokenIdx] || '', x: e.clientX, y: e.clientY });
+
+      // Find which chip in the tray the finger/cursor is currently over (works across wrapped lines!)
+      const els = document.elementsFromPoint(e.clientX, e.clientY);
+      const hitEl = els.find(
+        (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.trayPos !== undefined
+      );
+      if (hitEl) {
+        const targetPos = Number(hitEl.dataset.trayPos);
+        if (!Number.isNaN(targetPos) && targetPos !== st.pos) {
+          const fromPos = st.pos;
+          st.pos = targetPos;
+          setDraggingPos(targetPos);
+          onChangeOrder((prev) => {
+            if (fromPos < 0 || fromPos >= prev.length || targetPos < 0 || targetPos >= prev.length) {
+              return prev;
+            }
+            const next = [...prev];
+            const [moved] = next.splice(fromPos, 1);
+            next.splice(targetPos, 0, moved);
+            return next;
+          });
+        }
+      }
+    }
+  };
+
+  const finishPointer = (e: React.PointerEvent<HTMLButtonElement>, cancelled = false) => {
+    const st = dragRef.current;
+    if (!st || st.pointerId !== e.pointerId) return;
+    const wasDragging = st.dragging;
+    const finalPos = st.pos;
+    dragRef.current = null;
+    setDraggingPos(null);
+    setGhost(null);
+
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Quick tap (didn't drag) -> remove chip back to word bank
+    if (!cancelled && !wasDragging && status === 'idle') {
+      onChangeOrder((prev) => prev.filter((_, p) => p !== finalPos));
+    }
+  };
+
+  return (
+    <>
+      <div
+        dir="ltr"
+        className={`min-h-[84px] rounded-3xl border-2 border-dashed p-3.5 flex flex-wrap items-center gap-2 transition ${
+          status === 'correct'
+            ? 'bg-emerald-50 border-emerald-400'
+            : status === 'wrong'
+              ? 'bg-rose-50 border-rose-400'
+              : 'bg-white border-slate-300'
+        }`}
+      >
+        {selectedTokenIndices.length === 0 ? (
+          <span className="text-sm font-bold text-slate-400 w-full text-center" dir="rtl">
+            {placeholderFa}
+          </span>
+        ) : (
+          selectedTokenIndices.map((tokenIdx, pos) => {
+            const isBeingDragged = draggingPos === pos;
+            return (
+              <motion.button
+                key={`sel-${tokenIdx}`}
+                layout
+                transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+                data-tray-pos={pos}
+                type="button"
+                disabled={status !== 'idle'}
+                onPointerDown={(e) => handlePointerDown(e, pos, tokenIdx)}
+                onPointerMove={handlePointerMove}
+                onPointerUp={(e) => finishPointer(e, false)}
+                onPointerCancel={(e) => finishPointer(e, true)}
+                className={`font-de rounded-2xl border-2 border-b-4 px-3.5 py-2 text-sm sm:text-base font-extrabold select-none touch-none transition ${
+                  status === 'idle' ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'
+                } ${
+                  isBeingDragged
+                    ? 'bg-sky-100/60 border-dashed border-sky-400 text-sky-400 scale-95'
+                    : 'bg-sky-50 border-sky-300 text-sky-900 shadow-xs hover:bg-sky-100'
+                }`}
+              >
+                {activeTokens[tokenIdx]}
+              </motion.button>
+            );
+          })
+        )}
+      </div>
+
+      {selectedTokenIndices.length >= 2 && status === 'idle' && (
+        <div className="flex items-center justify-between gap-2 px-1">
+          <span className="text-[11px] sm:text-xs font-bold text-slate-400">
+            ↔️ برای جابه‌جایی، کلمه را نگه دار و بکش · برای حذف، ضربه بزن
+          </span>
+          <button
+            type="button"
+            onClick={() => onChangeOrder(() => [])}
+            className="inline-flex items-center gap-1 text-xs font-extrabold text-slate-400 hover:text-rose-500 shrink-0"
+          >
+            <Eraser className="w-3.5 h-3.5" />
+            پاک کردن همه
+          </button>
+        </div>
+      )}
+
+      {/* Floating ghost pill following the user's finger/cursor smoothly */}
+      {ghost && (
+        <div
+          dir="ltr"
+          style={{
+            left: ghost.x,
+            top: ghost.y - 26,
+            transform: 'translate(-50%, -50%) scale(1.08)',
+          }}
+          className="pointer-events-none fixed z-50 font-de rounded-2xl bg-sky-500 border-2 border-sky-600 border-b-4 text-white px-4 py-2 text-base font-black shadow-2xl"
+        >
+          {ghost.text}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function LessonPlayer({
   title,
   subtitle,
@@ -1337,53 +1526,16 @@ export function LessonPlayer({
                   )}
                 </div>
 
-                {/* Answer Tray */}
-                <div
-                  dir="ltr"
-                  className={`min-h-[82px] rounded-3xl border-2 border-dashed p-3.5 flex flex-wrap items-center gap-2 transition ${
-                    status === 'correct'
-                      ? 'bg-emerald-50 border-emerald-400'
-                      : status === 'wrong'
-                        ? 'bg-rose-50 border-rose-400'
-                        : 'bg-white border-slate-300'
-                  }`}
-                >
-                  {selectedTokenIndices.length === 0 ? (
-                    <span className="text-sm font-bold text-slate-400 w-full text-center" dir="rtl">
-                      روی کلمات زیر بزن تا جمله آلمانی ساخته شود...
-                    </span>
-                  ) : (
-                    selectedTokenIndices.map((tokenIdx, pos) => (
-                      <motion.button
-                        key={`sel-${tokenIdx}-${pos}`}
-                        layout
-                        type="button"
-                        disabled={status !== 'idle'}
-                        onClick={() =>
-                          setSelectedTokenIndices((prev) => prev.filter((_, p) => p !== pos))
-                        }
-                        className="btn-3d font-de rounded-2xl bg-sky-50 border-2 border-sky-300 border-b-4 text-sky-900 px-3.5 py-2 text-sm sm:text-base font-extrabold shadow-xs hover:bg-sky-100 disabled:pointer-events-none"
-                      >
-                        {activeTokens[tokenIdx]}
-                      </motion.button>
-                    ))
-                  )}
-                </div>
+                {/* Reorderable Answer Tray (Hold & Drag to reorder, Tap to remove) */}
+                <DraggableWordTray
+                  selectedTokenIndices={selectedTokenIndices}
+                  activeTokens={activeTokens}
+                  status={status}
+                  placeholderFa="روی کلمات زیر بزن تا جمله آلمانی ساخته شود..."
+                  onChangeOrder={setSelectedTokenIndices}
+                />
 
-                {selectedTokenIndices.length >= 2 && status === 'idle' && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedTokenIndices([])}
-                      className="inline-flex items-center gap-1 text-xs font-extrabold text-slate-400 hover:text-rose-500"
-                    >
-                      <Eraser className="w-3.5 h-3.5" />
-                      پاک کردن همه
-                    </button>
-                  </div>
-                )}
-
-                {/* Word Bank Chips */}
+                {/* Word Bank Chips (Speaks each German word on tap!) */}
                 <div dir="ltr" className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
                   {activeTokens.map((tok, i) => {
                     const used = selectedTokenIndices.includes(i);
@@ -1392,7 +1544,10 @@ export function LessonPlayer({
                         key={`bank-${i}`}
                         type="button"
                         disabled={used || status !== 'idle'}
-                        onClick={() => setSelectedTokenIndices((prev) => [...prev, i])}
+                        onClick={() => {
+                          speakGerman(tok, 0.98);
+                          setSelectedTokenIndices((prev) => [...prev, i]);
+                        }}
                         className={`btn-3d font-de rounded-2xl border-2 border-b-4 px-4 py-2.5 text-sm sm:text-base font-extrabold transition ${
                           used
                             ? 'bg-slate-200 border-slate-200 text-transparent select-none pointer-events-none'
@@ -1474,7 +1629,10 @@ export function LessonPlayer({
                         key={`${opt}-${idx}`}
                         type="button"
                         disabled={status !== 'idle'}
-                        onClick={() => setSelectedOption(opt)}
+                        onClick={() => {
+                          setSelectedOption(opt);
+                          if (isGermanOpt) speakGerman(opt, 0.98);
+                        }}
                         dir={isGermanOpt ? 'ltr' : 'rtl'}
                         className={`btn-3d rounded-2xl border-2 border-b-4 px-4 py-4 text-base font-extrabold transition flex items-center justify-between gap-2 ${
                           isGermanOpt ? 'font-de text-left' : 'text-right'
@@ -1526,36 +1684,13 @@ export function LessonPlayer({
 
                 {current.mode === 'word-bank' ? (
                   <>
-                    <div
-                      dir="ltr"
-                      className={`min-h-[82px] rounded-3xl border-2 border-dashed p-3.5 flex flex-wrap items-center gap-2 transition ${
-                        status === 'correct'
-                          ? 'bg-emerald-50 border-emerald-400'
-                          : status === 'wrong'
-                            ? 'bg-rose-50 border-rose-400'
-                            : 'bg-white border-slate-300'
-                      }`}
-                    >
-                      {selectedTokenIndices.length === 0 ? (
-                        <span className="text-sm font-bold text-slate-400 w-full text-center" dir="rtl">
-                          کلمات شنیده‌شده را به ترتیب انتخاب کن...
-                        </span>
-                      ) : (
-                        selectedTokenIndices.map((tokenIdx, pos) => (
-                          <button
-                            key={`lsel-${tokenIdx}-${pos}`}
-                            type="button"
-                            disabled={status !== 'idle'}
-                            onClick={() =>
-                              setSelectedTokenIndices((prev) => prev.filter((_, p) => p !== pos))
-                            }
-                            className="btn-3d font-de rounded-2xl bg-sky-50 border-2 border-sky-300 border-b-4 text-sky-900 px-3.5 py-2 text-sm sm:text-base font-extrabold"
-                          >
-                            {activeTokens[tokenIdx]}
-                          </button>
-                        ))
-                      )}
-                    </div>
+                    <DraggableWordTray
+                      selectedTokenIndices={selectedTokenIndices}
+                      activeTokens={activeTokens}
+                      status={status}
+                      placeholderFa="کلمات شنیده‌شده را به ترتیب انتخاب کن..."
+                      onChangeOrder={setSelectedTokenIndices}
+                    />
 
                     <div dir="ltr" className="flex flex-wrap items-center justify-center gap-2.5">
                       {activeTokens.map((tok, i) => {
@@ -1565,7 +1700,10 @@ export function LessonPlayer({
                             key={`lbank-${i}`}
                             type="button"
                             disabled={used || status !== 'idle'}
-                            onClick={() => setSelectedTokenIndices((prev) => [...prev, i])}
+                            onClick={() => {
+                              speakGerman(tok, 0.98);
+                              setSelectedTokenIndices((prev) => [...prev, i]);
+                            }}
                             className={`btn-3d font-de rounded-2xl border-2 border-b-4 px-4 py-2.5 text-sm sm:text-base font-extrabold ${
                               used
                                 ? 'bg-slate-200 border-slate-200 text-transparent select-none pointer-events-none'
