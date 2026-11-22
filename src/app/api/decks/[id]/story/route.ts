@@ -105,8 +105,9 @@ export async function POST(
       return NextResponse.json({ error: 'این دسته هنوز هیچ کلمه‌ای ندارد.' }, { status: 400 });
     }
 
-    // Pick up to 16 words per story (rotating cleanly for large 30+ word decks)
-    const BATCH_SIZE = 16;
+    // Focus on 10–12 words per episode so EVERY target word can be naturally repeated 2–3 times
+    // in different grammatical cases & real situations!
+    const BATCH_SIZE = 12;
     const totalBatches = Math.ceil(rows.length / BATCH_SIZE);
     const start = (partIndex % totalBatches) * BATCH_SIZE;
     const selectedRows = rows.slice(start, start + BATCH_SIZE);
@@ -129,22 +130,30 @@ export async function POST(
     }
     const ai = new GoogleGenAI({ apiKey });
 
-    const prompt = `You are a creative German podcast & Duolingo Story writer for Persian speakers learning German at level ${targetLevel}.
+    const prompt = `You are a master German language podcast writer (like Easy German Podcast) creating a rich, relaxed, 3.5 to 5-minute German podcast episode for Persian speakers at CEFR level ${targetLevel}.
 
-Write a lively, engaging, realistic everyday German conversation/mini-podcast between two friends: **Anna** and **Lukas**.
-You MUST naturally weave as many of these target German vocabulary words as possible into the conversation (ideally ALL of them!):
+Write an authentic, warm, unhurried German podcast conversation between two friends: **Anna** and **Lukas**.
+
+TARGET VOCABULARY TO TEACH AND REINFORCE:
 ${vocabList.map((v) => `- ${v.display} (${v.fa})`).join('\n')}
 
-Requirements:
-- 10 to 14 dialogue turns alternating naturally between Anna and Lukas.
-- Each line should be 1 to 2 natural, clear spoken German sentences (great for listening as a podcast!).
-- Keep grammar and tone authentic for ${targetLevel} learners living in Germany.
-- Provide a natural, fluent Iranian Persian translation ("fa") for every line.
-- Create 3 short, fun reading/listening comprehension questions ("questions") in German with Persian translation and 3 short Persian answer options (with "correctIndex": 0, 1, or 2).
+CRITICAL PEDAGOGICAL & PACING RULES:
+1. **LENGTH & FLOW (NO PING-PONG!):**
+   - Write **20 to 24 dialogue turns** totaling **550 to 720 German words** (about 3.5 to 5 minutes of calm spoken podcast!).
+   - DO NOT write rapid-fire 1-sentence ping-pong replies! Each turn should be **2 to 4 relaxed, flowing spoken sentences** — telling short everyday anecdotes, explaining thoughts, reacting warmly ("Ach, das kenne ich total gut...", "Weißt du, letzte Woche ist mir etwas Ähnliches passiert..."), and developing a real story with a beginning, middle, and ending.
+2. **DELIBERATE REPETITION ACROSS GRAMMATICAL CASES (SUPER IMPORTANT!):**
+   - Repeat almost EVERY target word **2 to 3 times** naturally across different parts of the conversation!
+   - Vary the grammatical forms so the learner absorbs real German grammar effortlessly:
+     * For nouns: use them in **Nominativ, Akkusativ, Dativ**, and (where natural at ${targetLevel}) **Genitiv** or **Plural**!
+     * For verbs: use them across **Präsens, Perfekt, Modalverb, and Nebensatz** (e.g. with weil / obwohl / wenn)!
+     * For adjectives/adverbs: use them in different positions & comparisons!
+3. **NATURAL TRANSLATIONS & QUIZ:**
+   - Provide a fluent, accurate Iranian Persian translation ("fa") for every single turn.
+   - Include **4 comprehension questions** ("questions") at the end in German with Persian translation and 3 short Persian answer choices ("correctIndex": 0, 1, or 2).
 
 Return ONLY valid JSON (no markdown fences) matching this exact schema:
 {
-  "titleDe": "Catchy German episode title (3-6 words)",
+  "titleDe": "Engaging German podcast episode title (4-7 words)",
   "titleFa": "Natural Persian translation of the title",
   "lines": [
     { "speaker": "Anna", "de": "...", "fa": "..." },
@@ -170,7 +179,7 @@ Return ONLY valid JSON (no markdown fences) matching this exact schema:
 
     for (const model of STORY_MODELS) {
       const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 22000);
+      const timer = setTimeout(() => ac.abort(), 32000);
       try {
         let res;
         try {
@@ -208,16 +217,25 @@ Return ONLY valid JSON (no markdown fences) matching this exact schema:
           .replace(/```\s*$/i, '')
           .trim();
         const candidate = JSON.parse(cleaned);
-        if (candidate && Array.isArray(candidate.lines) && candidate.lines.length >= 4) {
+        if (candidate && Array.isArray(candidate.lines) && candidate.lines.length >= 6) {
           parsed = {
             titleDe: String(candidate.titleDe || deck.titleDe || 'DeutschKart Podcast').trim(),
             titleFa: String(candidate.titleFa || deck.title).trim(),
-            lines: candidate.lines.map((l: { speaker?: string; de?: string; fa?: string }, i: number) => ({
-              speaker: l.speaker === 'Lukas' ? 'Lukas' : l.speaker === 'Anna' ? 'Anna' : i % 2 === 0 ? 'Anna' : 'Lukas',
-              de: String(l.de || '').trim(),
-              fa: String(l.fa || '').trim(),
-            })),
-            questions: Array.isArray(candidate.questions) ? candidate.questions.slice(0, 4) : [],
+            lines: candidate.lines.map(
+              (l: { speaker?: string; de?: string; fa?: string }, i: number) => ({
+                speaker:
+                  l.speaker === 'Lukas'
+                    ? 'Lukas'
+                    : l.speaker === 'Anna'
+                      ? 'Anna'
+                      : i % 2 === 0
+                        ? 'Anna'
+                        : 'Lukas',
+                de: String(l.de || '').trim(),
+                fa: String(l.fa || '').trim(),
+              })
+            ),
+            questions: Array.isArray(candidate.questions) ? candidate.questions.slice(0, 5) : [],
           };
           break;
         }

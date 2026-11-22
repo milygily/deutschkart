@@ -54,37 +54,126 @@ interface StoryPodcastPlayerProps {
 }
 
 const SPEED_OPTIONS = [0.75, 0.9, 1, 1.25, 1.5] as const;
-const PODCAST_CACHE_NAME = 'deutschkart-podcasts-v1';
+const PODCAST_CACHE_NAME = 'deutschkart-podcasts-v2';
+const SAMPLE_RATE = 16000;
+const CHUNK_LINES = 5; // ~45-70s per chunk -> stays well under Vercel 4.5MB response cap!
+const CHUNK_PAUSE_SEC = 0.65; // natural breathing pause between chunks
+
+interface LineTiming {
+  start: number;
+  end: number;
+}
+
+function buildWavFromPcmChunks(
+  pcmChunks: Uint8Array[],
+  sampleRate = SAMPLE_RATE,
+  pauseSec = CHUNK_PAUSE_SEC
+): { blob: Blob; chunkRanges: { startSec: number; endSec: number }[] } {
+  const bytesPerSec = sampleRate * 2; // 16-bit mono
+  const pauseBytes = Math.floor(pauseSec * sampleRate) * 2;
+  const pauseBuf = new Uint8Array(pauseBytes); // zeros = clean silence
+
+  let totalPcmBytes = 0;
+  for (let i = 0; i < pcmChunks.length; i++) {
+    totalPcmBytes += pcmChunks[i].byteLength;
+    if (i < pcmChunks.length - 1) totalPcmBytes += pauseBytes;
+  }
+
+  const wavBytes = new Uint8Array(44 + totalPcmBytes);
+  const view = new DataView(wavBytes.buffer);
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + totalPcmBytes, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, bytesPerSec, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, totalPcmBytes, true);
+
+  const chunkRanges: { startSec: number; endSec: number }[] = [];
+  let offset = 44;
+  let cursorSec = 0;
+
+  for (let i = 0; i < pcmChunks.length; i++) {
+    const chunk = pcmChunks[i];
+    wavBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+    const durSec = chunk.byteLength / bytesPerSec;
+    chunkRanges.push({ startSec: cursorSec, endSec: cursorSec + durSec });
+    cursorSec += durSec;
+
+    if (i < pcmChunks.length - 1) {
+      wavBytes.set(pauseBuf, offset);
+      offset += pauseBytes;
+      cursorSec += pauseBytes / bytesPerSec;
+    }
+  }
+
+  return { blob: new Blob([wavBytes], { type: 'audio/wav' }), chunkRanges };
+}
+
+function computeChunkCalibratedTimings(
+  lines: StoryLine[],
+  chunkRanges: { startSec: number; endSec: number }[] | null,
+  totalDuration: number
+): LineTiming[] {
+  if (!lines.length) return [];
+
+  if (chunkRanges && chunkRanges.length > 0) {
+    const timings: LineTiming[] = [];
+    for (let c = 0; c < chunkRanges.length; c++) {
+      const slice = lines.slice(c * CHUNK_LINES, (c + 1) * CHUNK_LINES);
+      const range = chunkRanges[c];
+      const segDur = Math.max(0.1, range.endSec - range.startSec);
+      const weights = slice.map((l) => {
+        const chars = l.de.replace(/\s+/g, ' ').trim().length;
+        const punct = (l.de.match(/[.!?،,;]/g) || []).length * 7;
+        return Math.max(14, chars + punct + 12);
+      });
+      const sumW = weights.reduce((a, b) => a + b, 0);
+      let cur = range.startSec;
+      for (const w of weights) {
+        const d = (w / sumW) * segDur;
+        timings.push({ start: cur, end: cur + d });
+        cur += d;
+      }
+    }
+    return timings;
+  }
+
+  if (!totalDuration || !Number.isFinite(totalDuration)) {
+    return lines.map(() => ({ start: 0, end: 0 }));
+  }
+  const weights = lines.map((l) => {
+    const chars = l.de.replace(/\s+/g, ' ').trim().length;
+    const punct = (l.de.match(/[.!?،,;]/g) || []).length * 7;
+    return Math.max(14, chars + punct + 12);
+  });
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  let cursor = 0;
+  return weights.map((w) => {
+    const seg = (w / totalWeight) * totalDuration;
+    const item = { start: cursor, end: cursor + seg };
+    cursor += seg;
+    return item;
+  });
+}
 
 function formatTime(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00';
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-/**
- * Estimates start/end timestamps per dialogue line proportionally by spoken length
- * + natural pause weight between speakers, calibrated precisely to actual audio duration.
- */
-function computeLineTimings(lines: StoryLine[], duration: number) {
-  if (!lines.length || !duration || !Number.isFinite(duration)) {
-    return lines.map(() => ({ start: 0, end: 0 }));
-  }
-  const weights = lines.map((l) => {
-    const chars = l.de.replace(/\s+/g, ' ').trim().length;
-    const punctPauses = (l.de.match(/[.!?،,;]/g) || []).length * 6;
-    // +10 baseline pause per speaker turn switch
-    return Math.max(12, chars + punctPauses + 10);
-  });
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  let cursor = 0;
-  return weights.map((w) => {
-    const seg = (w / totalWeight) * duration;
-    const item = { start: cursor, end: cursor + seg };
-    cursor += seg;
-    return item;
-  });
 }
 
 export function StoryPodcastPlayer({
@@ -105,7 +194,11 @@ export function StoryPodcastPlayer({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [chunkRanges, setChunkRanges] = useState<{ startSec: number; endSec: number }[] | null>(
+    null
+  );
   const [loadingAudio, setLoadingAudio] = useState(false);
+  const [audioProgressText, setAudioProgressText] = useState('');
   const [audioError, setAudioError] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -124,8 +217,11 @@ export function StoryPodcastPlayer({
   );
 
   const lineTimings = useMemo(
-    () => (activeStory ? computeLineTimings(activeStory.lines, duration) : []),
-    [activeStory, duration]
+    () =>
+      activeStory
+        ? computeChunkCalibratedTimings(activeStory.lines, chunkRanges, duration)
+        : [],
+    [activeStory, chunkRanges, duration]
   );
 
   const activeLineIndex = useMemo(() => {
@@ -165,10 +261,16 @@ export function StoryPodcastPlayer({
     async function checkCachedAudio() {
       if (!activeStory) {
         setAudioUrl(null);
+        setChunkRanges(null);
         return;
       }
       setAudioUrl(null);
+      setChunkRanges(null);
       try {
+        const savedRanges = localStorage.getItem(`dk_podcast_ranges_${activeStory.id}`);
+        if (savedRanges && !cancelled) {
+          setChunkRanges(JSON.parse(savedRanges));
+        }
         if ('caches' in window) {
           const cache = await caches.open(PODCAST_CACHE_NAME);
           const cached = await cache.match(`/podcast-audio/story-${activeStory.id}.wav`);
@@ -286,24 +388,58 @@ export function StoryPodcastPlayer({
 
     setAudioError('');
     setLoadingAudio(true);
+    setAudioProgressText('');
     try {
-      const res = await fetch(`/api/decks/${deckId}/story/audio`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyId: activeStory.id, lines: activeStory.lines }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        setAudioError(errData.error || 'خطا در تولید فایل صوتی پادکست');
-        setLoadingAudio(false);
-        return;
+      // Split dialogue into chunks of CHUNK_LINES so multi-minute podcasts stay under Vercel's 4.5MB response cap
+      const lineChunks: StoryLine[][] = [];
+      for (let i = 0; i < activeStory.lines.length; i += CHUNK_LINES) {
+        lineChunks.push(activeStory.lines.slice(i, i + CHUNK_LINES));
       }
 
-      const blob = await res.blob();
+      const pcmResults: Uint8Array[] = new Array(lineChunks.length);
+      let completed = 0;
+      setAudioProgressText(`در حال ضبط بخش ۱ از ${lineChunks.length}...`);
 
-      // Store in browser CacheStorage so next playback is instant & offline-friendly!
+      const fetchChunk = async (idx: number) => {
+        const res = await fetch(`/api/decks/${deckId}/story/audio`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lines: lineChunks[idx], format: 'pcm' }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'خطا در تولید بخش صوتی پادکست');
+        }
+        const buf = new Uint8Array(await res.arrayBuffer());
+        pcmResults[idx] = buf;
+        completed++;
+        setAudioProgressText(
+          completed < lineChunks.length
+            ? `در حال ضبط بخش ${completed + 1} از ${lineChunks.length}...`
+            : 'در حال آماده‌سازی فایل نهایی پادکست...'
+        );
+      };
+
+      // Run 2 chunks at a time in parallel (fast ~12-16s for a full 4-min episode, gentle on rate limits)
+      for (let i = 0; i < lineChunks.length; i += 2) {
+        const batch = [fetchChunk(i)];
+        if (i + 1 < lineChunks.length) batch.push(fetchChunk(i + 1));
+        await Promise.all(batch);
+      }
+
+      // Assemble ONE seamless WAV Blob with natural 650ms breathing pauses between chunks!
+      const { blob, chunkRanges: measuredRanges } = buildWavFromPcmChunks(
+        pcmResults,
+        SAMPLE_RATE,
+        CHUNK_PAUSE_SEC
+      );
+      setChunkRanges(measuredRanges);
+
       try {
+        localStorage.setItem(
+          `dk_podcast_ranges_${activeStory.id}`,
+          JSON.stringify(measuredRanges)
+        );
         if ('caches' in window) {
           const cache = await caches.open(PODCAST_CACHE_NAME);
           await cache.put(
@@ -318,17 +454,19 @@ export function StoryPodcastPlayer({
       const url = URL.createObjectURL(blob);
       setAudioUrl(url);
 
-      // Auto-play once loaded
       setTimeout(() => {
         if (audioRef.current) {
           audioRef.current.playbackRate = speed;
           audioRef.current.play().catch(() => {});
         }
-      }, 120);
-    } catch {
-      setAudioError('ارتباط با سرور صوتی برقرار نشد.');
+      }, 140);
+    } catch (err) {
+      setAudioError(
+        err instanceof Error ? err.message : 'ارتباط با سرور صوتی برقرار نشد.'
+      );
     } finally {
       setLoadingAudio(false);
+      setAudioProgressText('');
     }
   }
 
@@ -575,7 +713,7 @@ export function StoryPodcastPlayer({
             {!audioUrl && (
               <div className="rounded-3xl bg-white/10 border border-white/15 p-5 text-center space-y-3">
                 <p className="text-sm font-bold text-slate-200">
-                  صدای استودیویی دونفره <strong>Anna & Lukas</strong> آماده ساخته شدنه (حدود ۵ ثانیه طول می‌کشه و بعد روی گوشیت ذخیره میشه!)
+                  صدای استودیویی آرام و روان دونفره <strong>Anna & Lukas</strong> (با مکث‌های طبیعی بین جملات) آماده ضبطه و بعد روی گوشیت ذخیره میشه!
                 </p>
                 {audioError && (
                   <div className="rounded-xl bg-rose-500/25 border border-rose-400/40 px-3 py-2 text-xs font-bold text-rose-200">
@@ -590,7 +728,7 @@ export function StoryPodcastPlayer({
                   {loadingAudio ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      در حال ضبط صدای Anna و Lukas...
+                      {audioProgressText || 'در حال ضبط صدای Anna و Lukas...'}
                     </>
                   ) : (
                     <>

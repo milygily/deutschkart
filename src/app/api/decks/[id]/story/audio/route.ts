@@ -12,7 +12,61 @@ interface StoryLine {
   fa: string;
 }
 
-function pcmToWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16): Buffer {
+function parseSampleRate(mimeType: string): number {
+  const match = mimeType.match(/rate=(\d+)/i);
+  return match ? Number(match[1]) : 24000;
+}
+
+/**
+ * Extracts raw 16-bit mono PCM bytes from either a WAV buffer or raw PCM buffer.
+ */
+function extractPcmAndRate(raw: Buffer, mimeType: string): { pcm: Buffer; sampleRate: number } {
+  if (raw.length > 44 && raw.toString('ascii', 0, 4) === 'RIFF' && raw.toString('ascii', 8, 12) === 'WAVE') {
+    const sampleRate = raw.readUInt32LE(24) || 24000;
+    // Find "data" chunk cleanly
+    let offset = 12;
+    while (offset + 8 < raw.length) {
+      const id = raw.toString('ascii', offset, offset + 4);
+      const size = raw.readUInt32LE(offset + 4);
+      if (id === 'data') {
+        return { pcm: raw.subarray(offset + 8, offset + 8 + size), sampleRate };
+      }
+      offset += 8 + size;
+    }
+    return { pcm: raw.subarray(44), sampleRate };
+  }
+  return { pcm: raw, sampleRate: parseSampleRate(mimeType) };
+}
+
+/**
+ * Clean linear-interpolation resampler to 16kHz 16-bit mono PCM.
+ * Keeps crisp German voice clarity while cutting transfer size by 33%
+ * so multi-minute podcast chunks stay safely under Vercel's 4.5MB response cap!
+ */
+function resamplePcm16Mono(pcm: Buffer, fromRate: number, toRate = 16000): Buffer {
+  if (fromRate === toRate) return pcm;
+  const inSamples = Math.floor(pcm.length / 2);
+  if (inSamples < 2) return pcm;
+
+  const ratio = fromRate / toRate;
+  const outSamples = Math.floor(inSamples / ratio);
+  const out = Buffer.alloc(outSamples * 2);
+
+  for (let i = 0; i < outSamples; i++) {
+    const pos = i * ratio;
+    const idx = Math.floor(pos);
+    const frac = pos - idx;
+    const s0 = pcm.readInt16LE(idx * 2);
+    const s1 = idx + 1 < inSamples ? pcm.readInt16LE((idx + 1) * 2) : s0;
+    const val = Math.max(-32768, Math.min(32767, Math.round(s0 + (s1 - s0) * frac)));
+    out.writeInt16LE(val, i * 2);
+  }
+  return out;
+}
+
+function pcmToWavBuffer(pcmBuffer: Buffer, sampleRate = 16000): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
   const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
   const blockAlign = (numChannels * bitsPerSample) / 8;
   const dataSize = pcmBuffer.length;
@@ -22,8 +76,8 @@ function pcmToWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, 
   header.writeUInt32LE(36 + dataSize, 4);
   header.write('WAVE', 8);
   header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16); // PCM chunk size
-  header.writeUInt16LE(1, 20); // PCM format
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
   header.writeUInt16LE(numChannels, 22);
   header.writeUInt32LE(sampleRate, 24);
   header.writeUInt32LE(byteRate, 28);
@@ -35,11 +89,6 @@ function pcmToWavBuffer(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, 
   return Buffer.concat([header, pcmBuffer]);
 }
 
-function parseSampleRate(mimeType: string): number {
-  const match = mimeType.match(/rate=(\d+)/i);
-  return match ? Number(match[1]) : 24000;
-}
-
 export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> }
@@ -47,6 +96,7 @@ export async function POST(
   try {
     await context.params;
     const body = await req.json();
+    const format = body.format === 'pcm' ? 'pcm' : 'wav';
     let lines: StoryLine[] = Array.isArray(body.lines) ? body.lines : [];
 
     if (lines.length === 0 && body.storyId) {
@@ -70,18 +120,19 @@ export async function POST(
     }
     const ai = new GoogleGenAI({ apiKey });
 
-    const scriptText = lines.map((l) => `${l.speaker}: ${l.de}`).join('\n');
+    // Add gentle pauses between turns so the dialogue breathes naturally instead of ping-ponging!
+    const scriptText = lines.map((l) => `${l.speaker}: ${l.de}`).join('\n\n');
 
-    let audioBytes: Buffer | null = null;
+    let pcm16k: Buffer | null = null;
     let lastErr: unknown = null;
 
-    // 1. Primary: Studio 2-Speaker German Podcast (Anna = Kore, Lukas = Puck)
+    // 1. Primary: Calm, relaxed, Easy-German-paced 2-Speaker Podcast (Anna = Kore, Lukas = Puck)
     try {
       const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 38000);
+      const timer = setTimeout(() => ac.abort(), 42000);
       const res = await ai.models.generateContent({
         model: 'gemini-2.5-flash-preview-tts',
-        contents: `Lies diesen deutschen Podcast-Dialog zwischen Anna und Lukas natürlich, klar und freundlich vor:\n${scriptText}`,
+        contents: `Lies diesen deutschen Lernpodcast zwischen Anna und Lukas in einem ruhigen, entspannten, warmen und gut verständlichen Tempo vor (wie Easy German Podcast für B1-Lernende). Sprich nicht gehetzt, betone klar und mache kleine, natürliche Atempausen nach jedem Satz und beim Sprecherwechsel:\n\n${scriptText}`,
         config: {
           responseModalities: ['AUDIO'],
           speechConfig: {
@@ -100,26 +151,22 @@ export async function POST(
       const inlineData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData;
       if (inlineData?.data) {
         const raw = Buffer.from(inlineData.data, 'base64');
-        const mime = inlineData.mimeType || '';
-        if (mime.includes('wav')) {
-          audioBytes = raw;
-        } else {
-          audioBytes = pcmToWavBuffer(raw, parseSampleRate(mime));
-        }
+        const { pcm, sampleRate } = extractPcmAndRate(raw, inlineData.mimeType || '');
+        pcm16k = resamplePcm16Mono(pcm, sampleRate, 16000);
       }
     } catch (e) {
       lastErr = e;
     }
 
-    // 2. Fallback: Ultra-fast single-voice Gemini 3.8 Flash Lite TTS
-    if (!audioBytes) {
+    // 2. Fallback: Ultra-fast Gemini 3.8 Flash Lite TTS
+    if (!pcm16k) {
       try {
-        const plainNarration = lines.map((l) => l.de).join(' ... ');
+        const plainNarration = lines.map((l) => l.de).join(' ... ... ');
         const ac = new AbortController();
-        const timer = setTimeout(() => ac.abort(), 25000);
+        const timer = setTimeout(() => ac.abort(), 28000);
         const res = await ai.models.generateContent({
           model: 'gemini-3.8-flash-lite-tts',
-          contents: `Lies diese deutsche Geschichte klar und natürlich vor:\n${plainNarration}`,
+          contents: `Lies diesen deutschen Lernpodcast ruhig, entspannt und deutlich mit natürlichen Pausen vor:\n\n${plainNarration}`,
           config: {
             responseModalities: ['AUDIO'],
             speechConfig: {
@@ -133,25 +180,35 @@ export async function POST(
         const inlineData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData;
         if (inlineData?.data) {
           const raw = Buffer.from(inlineData.data, 'base64');
-          const mime = inlineData.mimeType || '';
-          audioBytes = mime.includes('wav')
-            ? raw
-            : pcmToWavBuffer(raw, parseSampleRate(mime));
+          const { pcm, sampleRate } = extractPcmAndRate(raw, inlineData.mimeType || '');
+          pcm16k = resamplePcm16Mono(pcm, sampleRate, 16000);
         }
       } catch (e) {
         lastErr = e;
       }
     }
 
-    if (!audioBytes) {
+    if (!pcm16k) {
       throw lastErr || new Error('TTS generation failed');
     }
 
-    return new NextResponse(new Uint8Array(audioBytes), {
+    if (format === 'pcm') {
+      return new NextResponse(new Uint8Array(pcm16k), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(pcm16k.length),
+          'X-Sample-Rate': '16000',
+        },
+      });
+    }
+
+    const wav = pcmToWavBuffer(pcm16k, 16000);
+    return new NextResponse(new Uint8Array(wav), {
       status: 200,
       headers: {
         'Content-Type': 'audio/wav',
-        'Content-Length': String(audioBytes.length),
+        'Content-Length': String(wav.length),
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'private, max-age=86400',
       },

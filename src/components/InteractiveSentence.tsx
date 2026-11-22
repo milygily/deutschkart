@@ -232,14 +232,35 @@ export function InteractiveSentence({
   const highlightSet = React.useMemo(() => {
     if (!highlightWords || highlightWords.length === 0) return null;
     return highlightWords
-      .map((w) => w.trim().toLowerCase())
+      .map((w) =>
+        w
+          .trim()
+          .replace(/^(sich|der|die|das)\s+/i, '')
+          .toLowerCase()
+      )
       .filter((w) => w.length >= 3);
   }, [highlightWords]);
 
   const isHighlightedToken = (tok: string) => {
     if (!highlightSet) return false;
     const lower = tok.toLowerCase();
-    return highlightSet.some((hw) => lower === hw || (hw.length >= 4 && lower.startsWith(hw.slice(0, -1))));
+    // Strip common German Perfekt "ge-" prefix for stem matching
+    const withoutGe = lower.startsWith('ge') && lower.length > 5 ? lower.slice(2) : lower;
+    return highlightSet.some((hw) => {
+      if (lower === hw) return true;
+      // Stem match for German noun plurals, Dativ/Akkusativ/Genitiv endings & verb conjugations
+      const stem = hw.endsWith('en') && hw.length >= 5 ? hw.slice(0, -2) : hw.length >= 5 ? hw.slice(0, -1) : hw;
+      if (stem.length >= 4 && (lower.startsWith(stem) || withoutGe.startsWith(stem))) return true;
+      // Handle separable verbs (e.g. "anzünden" -> "angezündet" or "zündet")
+      const sepMatch = hw.match(/^(ab|an|auf|aus|bei|ein|mit|nach|vor|zu|zurück|her|hin)(.{4,})$/);
+      if (sepMatch) {
+        const verbRoot = sepMatch[2].endsWith('en') ? sepMatch[2].slice(0, -2) : sepMatch[2];
+        if (verbRoot.length >= 4 && (lower.startsWith(verbRoot) || lower.includes(`ge${verbRoot}`))) {
+          return true;
+        }
+      }
+      return false;
+    });
   };
 
   const isDark = theme === 'dark';
