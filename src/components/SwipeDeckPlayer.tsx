@@ -22,7 +22,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { formatGermanDisplay, getArticleStyle, type WordCard } from '@/lib/types';
-import { speakGerman } from '@/lib/speech';
+import { preloadGermanAudio, speakGerman } from '@/lib/speech';
 import { useApp } from './AppProvider';
 import { InteractiveSentence } from './InteractiveSentence';
 
@@ -67,6 +67,18 @@ export function SwipeDeckPlayer({
   const nextCard = queue[1] ?? null;
   const totalUnique = initialCards.length;
   const isDone = queue.length === 0 && initialCards.length > 0;
+
+  useEffect(() => {
+    if (!initialCards.length) return;
+    const ac = new AbortController();
+    const texts: string[] = [];
+    for (const c of initialCards.slice(0, 60)) {
+      texts.push(formatGermanDisplay(c));
+      if (c.exampleDe) texts.push(c.exampleDe);
+    }
+    void preloadGermanAudio(texts, { signal: ac.signal });
+    return () => ac.abort();
+  }, [initialCards]);
 
   useEffect(() => {
     if (isDone) {

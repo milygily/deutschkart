@@ -20,7 +20,7 @@ import {
 import { Navbar } from '@/components/Navbar';
 import { InteractiveSentence } from '@/components/InteractiveSentence';
 import { LessonPlayer, type LessonCompletionPayload } from '@/components/LessonPlayer';
-import { speakGerman, type SpeechPlayState } from '@/lib/speech';
+import { preloadGermanAudio, speakGerman, type SpeechPlayState } from '@/lib/speech';
 import type { Exercise, GrammarLessonContent } from '@/lib/exercises';
 
 interface GrammarTopicFull {
@@ -129,6 +129,17 @@ export default function GrammarTopicDetailPage() {
   useEffect(() => {
     loadTopic();
   }, [loadTopic]);
+
+  // Preload grammar example sentences as soon as the topic opens so tapping plays in 0ms
+  useEffect(() => {
+    if (!topic?.lessonContent?.examples?.length) return;
+    const ac = new AbortController();
+    void preloadGermanAudio(
+      topic.lessonContent.examples.map((ex) => ex.de).filter(Boolean),
+      { signal: ac.signal }
+    );
+    return () => ac.abort();
+  }, [topic]);
 
   const startDrillSession = (mode: 'random10' | 'latest10' | 'all20', customSet?: Exercise[]) => {
     if (!topic) return;

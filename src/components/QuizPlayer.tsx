@@ -13,7 +13,7 @@ import {
   Star,
 } from 'lucide-react';
 import { formatGermanDisplay, type WordCard } from '@/lib/types';
-import { speakGerman } from '@/lib/speech';
+import { preloadGermanAudio, speakGerman } from '@/lib/speech';
 import { useApp } from './AppProvider';
 import { InteractiveSentence } from './InteractiveSentence';
 
@@ -159,6 +159,23 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
     setMasteredIds(new Set());
     setWrongCards([]);
     setRetryIntermission(null);
+  }, [initialQuestions]);
+
+  // Preload all German words & example sentences for this quiz immediately
+  useEffect(() => {
+    if (!initialQuestions.length) return;
+    const ac = new AbortController();
+    const texts: string[] = [];
+    for (const q of initialQuestions.slice(0, 60)) {
+      texts.push(formatGermanDisplay(q.card));
+      if (q.card.word) texts.push(q.card.word);
+      if (q.card.exampleDe) texts.push(q.card.exampleDe);
+      if (q.type === 'meaning-fa-de') {
+        texts.push(...q.options);
+      }
+    }
+    void preloadGermanAudio(texts, { signal: ac.signal });
+    return () => ac.abort();
   }, [initialQuestions]);
 
   const currentEntry = queue[index] ?? null;

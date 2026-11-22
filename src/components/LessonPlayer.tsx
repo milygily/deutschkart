@@ -46,7 +46,7 @@ import {
   Loader2,
   Square,
 } from 'lucide-react';
-import { speakGerman, stopGermanAudio } from '@/lib/speech';
+import { preloadGermanAudio, speakGerman, stopGermanAudio } from '@/lib/speech';
 import {
   checkGermanAnswer,
   computeSpeechSimilarity,
@@ -420,6 +420,52 @@ function DraggableWordTray({
   );
 }
 
+function extractLessonAudioTexts(exercises: Exercise[]): string[] {
+  const out: string[] = [];
+  for (const ex of exercises) {
+    if (ex.type === 'listening') {
+      if (ex.audioDe) {
+        out.push(ex.audioDe);
+        out.push(...tokenizeGermanSentence(ex.audioDe));
+      }
+      if (ex.tokens?.length) out.push(...ex.tokens);
+    } else if (ex.type === 'word-bank') {
+      if (ex.tokens?.length) out.push(...ex.tokens);
+      if (ex.targetDe) {
+        out.push(...tokenizeGermanSentence(ex.targetDe));
+        out.push(ex.targetDe);
+      }
+    } else if (ex.type === 'grammar-cloze') {
+      for (const opt of ex.options) {
+        if (/[a-zA-ZäöüßÄÖÜ]/.test(opt)) out.push(opt);
+      }
+      const fullSentence =
+        ex.fullSentenceDe ||
+        `${ex.sentenceBefore || ''} ${ex.answer || ''} ${ex.sentenceAfter || ''}`
+          .replace(/\s+/g, ' ')
+          .trim();
+      if (fullSentence && /[a-zA-ZäöüßÄÖÜ]/.test(fullSentence)) {
+        out.push(fullSentence);
+      }
+    } else if (ex.type === 'match-pairs') {
+      for (const p of ex.pairs) {
+        if (p.de) out.push(p.de);
+      }
+    } else if (ex.type === 'typing') {
+      const fullTyped =
+        ex.sentenceBefore || ex.sentenceAfter
+          ? `${ex.sentenceBefore || ''} ${ex.answerDe || ''} ${ex.sentenceAfter || ''}`
+              .replace(/\s+/g, ' ')
+              .trim()
+          : ex.answerDe;
+      if (fullTyped) out.push(fullTyped);
+    } else if (ex.type === 'speaking') {
+      if (ex.targetDe) out.push(ex.targetDe);
+    }
+  }
+  return out;
+}
+
 export function LessonPlayer({
   title,
   subtitle,
@@ -490,6 +536,7 @@ export function LessonPlayer({
   const [matchedIds, setMatchedIds] = useState<Set<string>>(() => new Set());
   const [wrongFlashPair, setWrongFlashPair] = useState<{ left: string; right: string } | null>(null);
   const [matchMistakeCount, setMatchMistakeCount] = useState(0);
+  const [audioPreload, setAudioPreload] = useState<{ loaded: number; total: number } | null>(null);
 
   // Reset only when the actual exercise IDs change (not on incidental parent re-renders)
   const exercisesKey = useMemo(() => exercises.map((e) => e.id).join('|'), [exercises]);
@@ -507,6 +554,31 @@ export function LessonPlayer({
     setRetryIntermission(null);
     setFinished(false);
     setXpResult(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exercisesKey]);
+
+  // Preload ALL German audio files for this lesson immediately on start so every tap is 0ms instant!
+  useEffect(() => {
+    if (!exercises.length) return;
+    const ac = new AbortController();
+    const allTexts = extractLessonAudioTexts(exercises);
+    setAudioPreload(null);
+
+    void preloadGermanAudio(allTexts, {
+      signal: ac.signal,
+      onProgress: (loaded, total) => {
+        if (ac.signal.aborted) return;
+        if (loaded >= total) {
+          setAudioPreload(null);
+        } else {
+          setAudioPreload({ loaded, total });
+        }
+      },
+    });
+
+    return () => {
+      ac.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exercisesKey]);
 
@@ -1465,13 +1537,26 @@ export function LessonPlayer({
           </button>
 
           <div className="flex-1 space-y-1 min-w-0">
-            <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-400">
-              <span className="truncate max-w-[60%]">{title}</span>
-              <span className={roundPositionInfo.round > 0 ? 'text-orange-600 font-black' : 'font-de'}>
-                {roundPositionInfo.round > 0
-                  ? `🔄 اصلاح اشتباه ${roundPositionInfo.pos} از ${roundPositionInfo.total}`
-                  : `${roundPositionInfo.pos} / ${roundPositionInfo.total}`}
-              </span>
+            <div className="flex items-center justify-between gap-2 text-[11px] font-extrabold text-slate-400">
+              <span className="truncate">{title}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                {audioPreload && audioPreload.total > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-sky-50 text-sky-600 px-2 py-0.5 text-[10px] font-black"
+                    title="در حال آماده‌سازی فایل‌های صوتی این درس"
+                  >
+                    <Volume2 className="w-3 h-3 animate-pulse" />
+                    <span className="font-de">
+                      {Math.round((audioPreload.loaded / audioPreload.total) * 100)}%
+                    </span>
+                  </span>
+                )}
+                <span className={roundPositionInfo.round > 0 ? 'text-orange-600 font-black' : 'font-de'}>
+                  {roundPositionInfo.round > 0
+                    ? `🔄 اصلاح اشتباه ${roundPositionInfo.pos} از ${roundPositionInfo.total}`
+                    : `${roundPositionInfo.pos} / ${roundPositionInfo.total}`}
+                </span>
+              </div>
             </div>
             <div className="h-3.5 rounded-full bg-slate-200 overflow-hidden">
               <motion.div

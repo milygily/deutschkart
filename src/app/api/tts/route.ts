@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { put } from '@vercel/blob';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { ttsAudioCache } from '@/db/schema';
 
@@ -10,18 +10,25 @@ export const maxDuration = 30;
 
 // Warm in-memory map: textHash -> permanent Vercel Blob CDN URL (0ms on warm instances)
 const blobUrlCache = new Map<string, string>();
-const MAX_URL_CACHE = 1000;
+const MAX_URL_CACHE = 4000;
 
 // In-flight deduplication so simultaneous taps on the exact same sentence only call Gemini ONCE
 const inflightSynthesis = new Map<string, Promise<{ wav: Uint8Array; blobUrl: string | null }>>();
 
-function hashText(normalizedText: string): string {
-  // v3: Human Neural German voices (Seraphina + Conrad) stored as MP3 on Frankfurt Vercel Blob
-  const canonical = normalizedText
+function canonicalizeText(rawText: string): string {
+  return rawText
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 260)
     .toLowerCase()
     .replace(/^[.,!?;:„“"'«»()[\]]+|[.,!?;:„“"'«»()[\]]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function hashText(normalizedText: string): string {
+  // v3: Human Neural German voices (Seraphina + Conrad) stored as MP3 on Frankfurt Vercel Blob
+  const canonical = canonicalizeText(normalizedText);
   return crypto.createHash('sha256').update(`v3:${canonical}`).digest('hex').slice(0, 32);
 }
 
@@ -239,5 +246,67 @@ export async function GET(req: Request) {
   } catch (err) {
     console.error('GET /api/tts error:', err);
     return NextResponse.json({ error: 'TTS unavailable' }, { status: 503 });
+  }
+}
+
+/**
+ * Batch lookup for instant lesson audio preloading:
+ * Accepts { texts: string[] } (up to 250 items), resolves all existing Frankfurt Vercel Blob
+ * CDN URLs in ONE single DB query (zero Gemini synthesis), and returns { urls: Record<canonicalKey, blobUrl> }.
+ */
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json().catch(() => null)) as { texts?: unknown } | null;
+    if (!body || !Array.isArray(body.texts)) {
+      return NextResponse.json({ error: 'texts array required' }, { status: 400 });
+    }
+
+    const hashToCanonical = new Map<string, string>();
+    const urls: Record<string, string> = {};
+    const missingHashes: string[] = [];
+
+    for (const raw of body.texts.slice(0, 250)) {
+      if (typeof raw !== 'string') continue;
+      const canonical = canonicalizeText(raw);
+      if (!canonical) continue;
+      const hash = hashText(canonical);
+      if (hashToCanonical.has(hash)) continue;
+      hashToCanonical.set(hash, canonical);
+
+      const memUrl = blobUrlCache.get(hash);
+      if (memUrl) {
+        urls[canonical] = memUrl;
+      } else {
+        missingHashes.push(hash);
+      }
+    }
+
+    if (missingHashes.length > 0) {
+      const rows = await db
+        .select({ textHash: ttsAudioCache.textHash, blobUrl: ttsAudioCache.blobUrl })
+        .from(ttsAudioCache)
+        .where(inArray(ttsAudioCache.textHash, missingHashes));
+
+      for (const row of rows) {
+        if (!row.blobUrl) continue;
+        rememberBlobUrl(row.textHash, row.blobUrl);
+        const canonical = hashToCanonical.get(row.textHash);
+        if (canonical) {
+          urls[canonical] = row.blobUrl;
+        }
+      }
+    }
+
+    return NextResponse.json(
+      { urls },
+      {
+        headers: {
+          'Cache-Control': 'private, max-age=300',
+        },
+      }
+    );
+  } catch (err) {
+    console.error('POST /api/tts batch error:', err);
+    return NextResponse.json({ urls: {} }, { status: 200 });
   }
 }
