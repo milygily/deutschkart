@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/db';
-import { courseLessons, courseUnits } from '@/db/schema';
+import { courseLessons, courseUnits, grammarTopics } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 export async function GET(
@@ -37,6 +37,20 @@ export async function GET(
       .where(eq(courseUnits.id, lesson.unitId))
       .limit(1);
 
+    // If this path lesson is tied to a B1 grammar topic, also send its full 50+ exercise pool
+    // so every replay gives fresh non-repeating exercises!
+    let grammarPool: unknown[] = [];
+    if (lesson.grammarSlug) {
+      const [topic] = await db
+        .select({ exercises: grammarTopics.exercises })
+        .from(grammarTopics)
+        .where(eq(grammarTopics.slug, lesson.grammarSlug))
+        .limit(1);
+      if (topic && Array.isArray(topic.exercises)) {
+        grammarPool = topic.exercises;
+      }
+    }
+
     return NextResponse.json({
       lesson: {
         id: lesson.id,
@@ -48,6 +62,7 @@ export async function GET(
         xpReward: lesson.xpReward,
         grammarSlug: lesson.grammarSlug,
         exercises: Array.isArray(lesson.exercises) ? lesson.exercises : [],
+        grammarPool,
       },
       unit: unit ?? null,
     });

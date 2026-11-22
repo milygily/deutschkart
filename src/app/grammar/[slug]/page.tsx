@@ -69,9 +69,41 @@ export default function GrammarTopicDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'lesson' | 'practice'>('lesson');
 
-  // Drill player state
+  // Drill player state + Smart unseen-first tracker (prevents seeing repeats!)
   const [activeExercises, setActiveExercises] = useState<Exercise[] | null>(null);
   const [sessionSeed, setSessionSeed] = useState(1);
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set());
+
+  // Load previously seen exercise IDs for this topic from localStorage
+  useEffect(() => {
+    if (!slug) return;
+    try {
+      const raw = localStorage.getItem(`dk_seen_grammar_${slug}`);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) setSeenIds(new Set(arr.map(String)));
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [slug]);
+
+  const markExercisesSeen = useCallback(
+    (played: Exercise[]) => {
+      if (!slug || !played.length) return;
+      setSeenIds((prev) => {
+        const next = new Set(prev);
+        for (const ex of played) next.add(ex.id);
+        try {
+          localStorage.setItem(`dk_seen_grammar_${slug}`, JSON.stringify(Array.from(next)));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    },
+    [slug]
+  );
 
   // Audio button feedback state per example
   const [speakingExIdx, setSpeakingExIdx] = useState<number | null>(null);
@@ -105,11 +137,26 @@ export default function GrammarTopicDetailPage() {
       picked = customSet;
     } else if (mode === 'latest10') {
       picked = topic.exercises.slice(-10);
-    } else if (mode === 'all20') {
-      picked = shuffle(topic.exercises).slice(0, Math.min(20, topic.exercises.length));
     } else {
-      // Ensure a balanced mix of exercise types for a 10-question session
-      picked = shuffle(topic.exercises).slice(0, Math.min(10, topic.exercises.length));
+      const targetSize = mode === 'all20' ? Math.min(20, topic.exercises.length) : Math.min(10, topic.exercises.length);
+      // Prioritize UNSEEN exercises first so every session feels completely fresh!
+      const unseen = shuffle(topic.exercises.filter((ex) => !seenIds.has(ex.id)));
+      const alreadySeen = shuffle(topic.exercises.filter((ex) => seenIds.has(ex.id)));
+
+      if (unseen.length >= targetSize) {
+        picked = unseen.slice(0, targetSize);
+      } else {
+        picked = [...unseen, ...alreadySeen].slice(0, targetSize);
+        // Once the whole bank has been cycled through, reset seen memory cleanly
+        if (unseen.length === 0 && slug) {
+          try {
+            localStorage.removeItem(`dk_seen_grammar_${slug}`);
+          } catch {
+            // ignore
+          }
+          setSeenIds(new Set());
+        }
+      }
     }
     setSessionSeed((s) => s + 1);
     setActiveExercises(picked);
@@ -150,6 +197,9 @@ export default function GrammarTopicDetailPage() {
 
   const handleDrillComplete = async (payload: LessonCompletionPayload) => {
     if (!topic) return;
+    if (activeExercises) {
+      markExercisesSeen(activeExercises);
+    }
     try {
       const res = await fetch(`/api/grammar/${topic.slug}/complete`, {
         method: 'POST',
@@ -163,6 +213,8 @@ export default function GrammarTopicDetailPage() {
       return undefined;
     }
   };
+
+  const unseenCount = topic ? topic.exercises.filter((ex) => !seenIds.has(ex.id)).length : 0;
 
   // Full-screen interactive drill mode
   if (activeExercises && topic) {
@@ -225,6 +277,11 @@ export default function GrammarTopicDetailPage() {
                       <span className="text-xs font-black bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-xl">
                         {topic.exercises.length} تمرین آماده
                       </span>
+                      {unseenCount > 0 && (
+                        <span className="text-xs font-black bg-sky-100 text-sky-700 px-2.5 py-0.5 rounded-xl">
+                          {unseenCount} تمرین جدید ندیده 🆕
+                        </span>
+                      )}
                     </div>
                     <h1 dir="ltr" className="font-de text-2xl sm:text-3xl font-black text-slate-800 text-left">
                       {topic.titleDe}

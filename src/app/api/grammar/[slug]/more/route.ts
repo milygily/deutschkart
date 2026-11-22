@@ -45,8 +45,8 @@ export async function POST(
       count: 10,
     });
 
-    // Cap stored pool at 120 exercises per topic to keep payload snappy
-    const merged = [...existingExercises, ...freshExercises].slice(-120);
+    // Cap stored pool at 300 exercises per topic so the bank can grow deeply without bloat
+    const merged = [...existingExercises, ...freshExercises].slice(-300);
 
     await db
       .update(grammarTopics)
