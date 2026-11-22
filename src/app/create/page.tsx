@@ -38,7 +38,7 @@ async function compressImageToBase64(file: File): Promise<{ base64: string; mime
       const img = new Image();
       img.onerror = () => reject(new Error('فرمت تصویر پشتیبانی نمی‌شود'));
       img.onload = () => {
-        const maxDim = 1024;
+        const maxDim = 1600;
         let { width, height } = img;
         if (width > maxDim || height > maxDim) {
           const scale = maxDim / Math.max(width, height);
@@ -54,7 +54,7 @@ async function compressImageToBase64(file: File): Promise<{ base64: string; mime
           return;
         }
         ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.74);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
         const base64 = dataUrl.split(',')[1];
         resolve({ base64, mimeType: 'image/jpeg' });
       };
