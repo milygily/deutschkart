@@ -416,23 +416,43 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
             }
 
             return (
-              <button
+              <div
                 key={idx}
-                onClick={() => handleSelect(opt)}
-                disabled={selected !== null}
                 dir={current.type === 'meaning-fa-de' ? 'ltr' : 'rtl'}
-                className={`btn-3d w-full rounded-2xl px-5 py-4 font-extrabold text-base flex items-center justify-between transition ${cls} ${
-                  current.type === 'meaning-fa-de' ? 'font-de text-left' : 'text-right'
-                }`}
+                className={`btn-3d w-full rounded-2xl flex items-center justify-between transition overflow-hidden ${cls}`}
               >
-                <span>{opt}</span>
-                {selected !== null && isRight && (
-                  <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => handleSelect(opt)}
+                  disabled={selected !== null}
+                  className={`flex-1 px-5 py-4 font-extrabold text-base flex items-center justify-between gap-2 ${
+                    current.type === 'meaning-fa-de' ? 'font-de text-left' : 'text-right'
+                  }`}
+                >
+                  <span>{opt}</span>
+                  {selected !== null && isRight && (
+                    <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />
+                  )}
+                  {selected !== null && isChosen && !isRight && (
+                    <XCircle className="w-6 h-6 text-rose-500 shrink-0" />
+                  )}
+                </button>
+
+                {current.type === 'meaning-fa-de' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      speakGerman(opt);
+                    }}
+                    title={`شنیدن تلفظ ${opt}`}
+                    aria-label={`شنیدن تلفظ ${opt}`}
+                    className="shrink-0 ml-1 mr-3 w-10 h-10 rounded-xl bg-sky-100/90 hover:bg-sky-200 text-sky-600 flex items-center justify-center transition"
+                  >
+                    <Volume2 className="w-5 h-5" />
+                  </button>
                 )}
-                {selected !== null && isChosen && !isRight && (
-                  <XCircle className="w-6 h-6 text-rose-500 shrink-0" />
-                )}
-              </button>
+              </div>
             );
           })}
         </div>
@@ -475,19 +495,28 @@ export function QuizPlayer({ deckTitle, cards, mode, backHref }: QuizPlayerProps
                   )}
                 </div>
               </div>
-              <button
-                onClick={() =>
-                  speakGerman(
-                    current.card.exampleDe || formatGermanDisplay(current.card)
-                  )
-                }
-                title="شنیدن جمله مثال"
-                aria-label="شنیدن جمله مثال"
-                className="btn-3d inline-flex items-center gap-1.5 rounded-2xl bg-white border-b-2 border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-50 text-xs font-extrabold shadow-xs"
-              >
-                <Volume2 className="w-5 h-5 text-sky-600" />
-                <span>شنیدن مثال</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => speakGerman(formatGermanDisplay(current.card))}
+                  title="شنیدن تلفظ کلمه"
+                  aria-label="شنیدن تلفظ کلمه"
+                  className="btn-3d inline-flex items-center gap-1 rounded-2xl bg-white border-b-2 border-slate-200 px-2.5 py-2 text-slate-700 hover:bg-slate-50 text-xs font-extrabold shadow-xs"
+                >
+                  <Volume2 className="w-4 h-4 text-emerald-600" />
+                  <span>کلمه</span>
+                </button>
+                {current.card.exampleDe && (
+                  <button
+                    onClick={() => speakGerman(current.card.exampleDe)}
+                    title="شنیدن جمله مثال"
+                    aria-label="شنیدن جمله مثال"
+                    className="btn-3d inline-flex items-center gap-1 rounded-2xl bg-white border-b-2 border-slate-200 px-2.5 py-2 text-slate-700 hover:bg-slate-50 text-xs font-extrabold shadow-xs"
+                  >
+                    <Volume2 className="w-4 h-4 text-sky-600" />
+                    <span>مثال</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {current.card.exampleDe && (
