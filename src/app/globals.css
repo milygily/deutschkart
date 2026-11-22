@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-fa: var(--font-vazirmatn), system-ui, sans-serif;
+  --font-de: var(--font-jakarta), system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-vazirmatn), system-ui, -apple-system, sans-serif;
+  background-color: #f6f8fb;
+  color: #1e293b;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.font-de {
+  font-family: var(--font-jakarta), system-ui, -apple-system, sans-serif;
+}
+
+/* Tactile Duolingo-style 3D pressable buttons */
+.btn-3d {
+  transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
+}
+.btn-3d:active:not(:disabled) {
+  transform: translateY(3px);
+}
+
+/* 3D Card Flip helpers */
+.perspective-1200 {
+  perspective: 1200px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+/* Smooth scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}

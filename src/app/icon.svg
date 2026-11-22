@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="32" fill="#22c55e"/>
+  <rect x="20" y="24" width="88" height="80" rx="18" fill="#ffffff"/>
+  <rect x="20" y="24" width="88" height="14" rx="8" fill="#1e293b"/>
+  <rect x="20" y="34" width="88" height="7" fill="#ef4444"/>
+  <rect x="20" y="41" width="88" height="7" fill="#facc15"/>
+  <text x="64" y="84" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="34" fill="#1e293b">DK</text>
+</svg>

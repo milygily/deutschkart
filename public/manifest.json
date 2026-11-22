@@ -1,0 +1,11 @@
+{
+  "name": "DeutschKart — گنجینه لغات آلمانی",
+  "short_name": "DeutschKart",
+  "description": "فلش‌کارت هوشمند و بازی‌گونه زبان آلمانی برای فارسی‌زبانان با هوش مصنوعی",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#22c55e",
+  "lang": "fa",
+  "dir": "rtl"
+}
