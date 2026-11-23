@@ -78,6 +78,7 @@ export default function CreateDeckPage() {
   const [imageHint, setImageHint] = useState('');
 
   const [generating, setGenerating] = useState(false);
+  const [progressText, setProgressText] = useState('');
   const [error, setError] = useState('');
   const [genStats, setGenStats] = useState<{ fromCache: number; fromAi: number } | null>(null);
 
@@ -102,42 +103,181 @@ export default function CreateDeckPage() {
     }
   }
 
+  async function postGenerateApi(payload: Record<string, unknown>, retries = 1) {
+    let lastErr = 'سرور هوش مصنوعی موقتاً شلوغ است. لطفاً چند ثانیه بعد دوباره امتحان کنید.';
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch('/api/ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const raw = await res.text();
+        let data: Record<string, unknown> = {};
+        try {
+          data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        } catch {
+          if (res.status === 504 || res.status === 502 || res.status === 503) {
+            lastErr = 'سرور هوش مصنوعی جمینای موقتاً شلوغ بود. در حال تلاش مجدد...';
+            if (attempt < retries) continue;
+            throw new Error('سرور هوش مصنوعی جمینای موقتاً شلوغ است. لطفاً چند ثانیه بعد دوباره بزن.');
+          }
+          throw new Error('پاسخ نامعتبر از سرور دریافت شد.');
+        }
+
+        if (!res.ok) {
+          lastErr = String(data.error || 'خطا در تولید فلش‌کارت');
+          if (res.status >= 500 && attempt < retries) continue;
+          throw new Error(lastErr);
+        }
+        return data;
+      } catch (err) {
+        if (err instanceof Error && err.message && !/failed to fetch/i.test(err.message)) {
+          lastErr = err.message;
+        }
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 900));
+          continue;
+        }
+      }
+    }
+    throw new Error(lastErr);
+  }
+
   async function handleGenerate() {
     setError('');
     setGenerating(true);
+    setProgressText('');
     setGenStats(null);
     try {
-      const payload =
-        tab === 'text'
-          ? { mode: 'text', text: rawText }
-          : {
-              mode: 'image',
-              imageBase64: imagePayload?.base64,
-              mimeType: imagePayload?.mimeType,
-              hint: imageHint,
-            };
+      if (tab === 'text') {
+        setProgressText('در حال ساخت فلش‌کارت‌ها با هوش مصنوعی...');
+        const data = await postGenerateApi({ mode: 'text', text: rawText }, 1);
+        const list = Array.isArray(data.cards) ? (data.cards as GeneratedWordCard[]) : [];
+        if (list.length === 0) {
+          setError('کلمه آلمانی مشخصی پیدا نشد. لطفاً متن واضح‌تری بفرستید.');
+        } else {
+          setCards(list);
+          if (data.stats) setGenStats(data.stats as { fromCache: number; fromAi: number });
+          if (!deckTitle) {
+            setDeckTitle(`درس جدید (${new Date().toLocaleDateString('fa-IR')})`);
+          }
+        }
+        return;
+      }
 
-      const res = await fetch('/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'خطا در تولید فلش‌کارت');
-      } else if (!Array.isArray(data.cards) || data.cards.length === 0) {
-        setError('کلمه آلمانی مشخصی پیدا نشد. لطفاً متن یا عکس واضح‌تری بفرستید.');
+      // IMAGE MODE: Fast 2-Stage Pipeline (Stage 1: Vision OCR -> Stage 2: Parallel 24-word batches)
+      // Guarantees zero 60s Vercel timeouts even for full 80+ word textbook pages!
+      setProgressText('مرحله ۱ از ۲: خواندن کلمات از روی عکس...');
+      const ocrData = await postGenerateApi(
+        {
+          mode: 'image-ocr',
+          imageBase64: imagePayload?.base64,
+          mimeType: imagePayload?.mimeType,
+          hint: imageHint,
+        },
+        1
+      );
+
+      const words = Array.isArray(ocrData.words)
+        ? (ocrData.words as string[]).map((w) => String(w || '').trim()).filter(Boolean)
+        : [];
+
+      if (words.length === 0) {
+        // Fallback to single-shot vision extraction
+        setProgressText('در حال تحلیل مستقیم تصویر...');
+        const fallbackData = await postGenerateApi(
+          {
+            mode: 'image',
+            imageBase64: imagePayload?.base64,
+            mimeType: imagePayload?.mimeType,
+            hint: imageHint,
+          },
+          0
+        );
+        const list = Array.isArray(fallbackData.cards)
+          ? (fallbackData.cards as GeneratedWordCard[])
+          : [];
+        if (list.length === 0) {
+          setError('کلمه آلمانی مشخصی در عکس پیدا نشد. لطفاً عکس واضح‌تری بفرستید.');
+        } else {
+          setCards(list);
+          if (fallbackData.stats) {
+            setGenStats(fallbackData.stats as { fromCache: number; fromAi: number });
+          }
+          if (!deckTitle) {
+            setDeckTitle(`درس جدید (${new Date().toLocaleDateString('fa-IR')})`);
+          }
+        }
+        return;
+      }
+
+      const BATCH_SIZE = 24;
+      const batches: string[][] = [];
+      for (let i = 0; i < words.length; i += BATCH_SIZE) {
+        batches.push(words.slice(i, i + BATCH_SIZE));
+      }
+
+      setProgressText(`${words.length} کلمه خوانده شد! در حال ساخت فلش‌کارت‌ها...`);
+
+      const batchCards: GeneratedWordCard[][] = new Array(batches.length);
+      let completedWords = 0;
+      let totalFromCache = 0;
+      let totalFromAi = 0;
+
+      // Process 2 batches in parallel at a time for maximum speed + resilience
+      let cursor = 0;
+      const CONCURRENCY = Math.min(2, batches.length);
+      await Promise.all(
+        Array.from({ length: CONCURRENCY }, async () => {
+          while (true) {
+            const idx = cursor++;
+            if (idx >= batches.length) break;
+            const batch = batches[idx];
+            const res = await postGenerateApi({ mode: 'words-batch', words: batch }, 2);
+            const list = Array.isArray(res.cards) ? (res.cards as GeneratedWordCard[]) : [];
+            const stats = res.stats as { fromCache?: number; fromAi?: number } | undefined;
+            batchCards[idx] = list;
+            totalFromCache += stats?.fromCache || 0;
+            totalFromAi += stats?.fromAi || 0;
+            completedWords += batch.length;
+            setProgressText(
+              `ساخت فلش‌کارت‌ها (${Math.min(completedWords, words.length)} از ${words.length} کلمه)...`
+            );
+          }
+        })
+      );
+
+      // Deduplicate while preserving exact textbook order
+      const seen = new Set<string>();
+      const merged: GeneratedWordCard[] = [];
+      for (const group of batchCards) {
+        for (const c of group || []) {
+          const key = c.word.trim().toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(c);
+        }
+      }
+
+      if (merged.length === 0) {
+        setError('کلمه آلمانی مشخصی پیدا نشد. لطفاً عکس واضح‌تری بفرستید.');
       } else {
-        setCards(data.cards);
-        if (data.stats) setGenStats(data.stats);
+        setCards(merged);
+        setGenStats({ fromCache: totalFromCache, fromAi: totalFromAi });
         if (!deckTitle) {
           setDeckTitle(`درس جدید (${new Date().toLocaleDateString('fa-IR')})`);
         }
       }
-    } catch {
-      setError('ارتباط با سرور هوش مصنوعی برقرار نشد.');
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'ارتباط با سرور هوش مصنوعی برقرار نشد. لطفاً دوباره امتحان کنید.'
+      );
     } finally {
       setGenerating(false);
+      setProgressText('');
     }
   }
 
@@ -330,8 +470,8 @@ export default function CreateDeckPage() {
           >
             {generating ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                هوش مصنوعی در حال ساخت فلش‌کارت‌هاست...
+                <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                <span>{progressText || 'هوش مصنوعی در حال ساخت فلش‌کارت‌هاست...'}</span>
               </>
             ) : (
               <>

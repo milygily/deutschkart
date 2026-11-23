@@ -5,7 +5,13 @@ import { germanIdioms } from '@/db/schema';
 
 export const maxDuration = 45;
 
-const MODELS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash'];
+const MODELS = [
+  'gemini-flash-lite-latest',
+  'gemini-3-flash-preview',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+];
 
 const CATEGORY_MAP: Record<string, string> = {
   sprichwoerter: 'ضرب‌المثل‌های طلایی',

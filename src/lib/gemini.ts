@@ -13,14 +13,34 @@ export interface GeneratedWordCard {
   level: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | null;
 }
 
-// Ordered by fastest response & highest Free Tier daily quota
+// Ordered by fastest verified response & highest Free Tier reliability
 const CANDIDATE_MODELS = [
-  'gemini-3.1-flash-lite',
-  'gemini-3.5-flash-lite',
-  'gemini-3.5-flash',
+  'gemini-flash-lite-latest',
+  'gemini-3-flash-preview',
   'gemini-3.6-flash',
-  'gemini-3.7-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest',
 ];
+
+// Short in-memory circuit breaker so overloaded/503 models are skipped immediately for 60s
+const modelCooldownUntil = new Map<string, number>();
+const thinkingUnsupportedModels = new Set<string>();
+
+function getOrderedHealthyModels(): string[] {
+  const now = Date.now();
+  const healthy: string[] = [];
+  const cooling: string[] = [];
+  for (const m of CANDIDATE_MODELS) {
+    const until = modelCooldownUntil.get(m) || 0;
+    if (until > now) {
+      cooling.push(m);
+    } else {
+      healthy.push(m);
+    }
+  }
+  return [...healthy, ...cooling];
+}
 
 export function normalizeGermanWord(raw: string): string {
   return raw
@@ -60,45 +80,62 @@ Rules:
 - Deduplicate exact duplicates only (keep distinct masculine/feminine noun pairs like Bürgermeister and Bürgermeisterin as separate cards!).
 - Ensure Persian translations are natural, idiomatic, and accurate for Iranian Persian speakers.`;
 
-async function callGeminiJsonRaw(contents: unknown, timeoutMs = 28000): Promise<unknown> {
+async function callGeminiJsonRaw(contents: unknown, timeoutMs = 15000): Promise<unknown> {
   const ai = getClient();
   let lastErr: unknown = null;
+  const models = getOrderedHealthyModels();
+  const overallDeadline = Date.now() + 45000;
 
-  for (const model of CANDIDATE_MODELS) {
+  for (const model of models) {
+    const remaining = overallDeadline - Date.now();
+    if (remaining < 4000) break;
+
+    const perAttemptMs = Math.min(timeoutMs, remaining);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), perAttemptMs);
     try {
       let response;
-      try {
+      const baseConfig = {
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+        abortSignal: controller.signal,
+      };
+
+      if (thinkingUnsupportedModels.has(model)) {
         response = await ai.models.generateContent({
           model,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           contents: contents as any,
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.2,
-            thinkingConfig: { thinkingBudget: 0 },
-            abortSignal: controller.signal,
-          },
+          config: baseConfig,
         });
-      } catch (innerErr) {
-        const msg = innerErr instanceof Error ? innerErr.message : '';
-        const status = (innerErr as { status?: number })?.status;
-        if (status === 400 || /INVALID_ARGUMENT|thinking/i.test(msg)) {
+      } else {
+        try {
           response = await ai.models.generateContent({
             model,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             contents: contents as any,
             config: {
-              responseMimeType: 'application/json',
-              temperature: 0.2,
-              abortSignal: controller.signal,
+              ...baseConfig,
+              thinkingConfig: { thinkingBudget: 0 },
             },
           });
-        } else {
-          throw innerErr;
+        } catch (innerErr) {
+          const msg = innerErr instanceof Error ? innerErr.message : '';
+          const status = (innerErr as { status?: number })?.status;
+          if (status === 400 || /INVALID_ARGUMENT|thinking/i.test(msg)) {
+            thinkingUnsupportedModels.add(model);
+            response = await ai.models.generateContent({
+              model,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              contents: contents as any,
+              config: baseConfig,
+            });
+          } else {
+            throw innerErr;
+          }
         }
       }
+
       clearTimeout(timer);
       const text = response.text?.trim() || '[]';
       const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -106,6 +143,12 @@ async function callGeminiJsonRaw(contents: unknown, timeoutMs = 28000): Promise<
     } catch (err) {
       clearTimeout(timer);
       lastErr = err;
+      const status = (err as { status?: number })?.status;
+      const msg = err instanceof Error ? err.message : String(err);
+      // Put overloaded, rate-limited, or timed-out models on 60s cooldown so next call skips them immediately
+      if (status === 503 || status === 429 || status === 404 || /abort|timeout|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(msg)) {
+        modelCooldownUntil.set(model, Date.now() + 60_000);
+      }
     }
   }
 
@@ -174,7 +217,7 @@ ${extraHint ? `- User note: ${extraHint}` : ''}`;
         ],
       },
     ],
-    28000
+    16000
   );
 
   if (!Array.isArray(parsed)) return [];
@@ -217,7 +260,7 @@ export async function generateFlashcardsInChunks(
 
 Convert ALL ${chunk.length} German vocabulary items below into structured German-to-Persian flashcards (return exactly ${chunk.length} items, do not omit any):
 ${chunk.map((w, idx) => `${idx + 1}. ${w}`).join('\n')}`;
-      const parsed = await callGeminiJsonRaw(prompt, 32000);
+      const parsed = await callGeminiJsonRaw(prompt, 18000);
       return parseGeneratedCards(parsed);
     })
   );

@@ -14,25 +14,42 @@ import {
 export const maxDuration = 60;
 
 async function cacheWordsInDb(cards: GeneratedWordCard[]) {
+  const seen = new Set<string>();
+  const rows: Array<{
+    normalizedWord: string;
+    word: string;
+    article: string | null;
+    plural: string | null;
+    partOfSpeech: string;
+    verbForms: string | null;
+    persianMeaning: string;
+    englishMeaning: string;
+    exampleDe: string;
+    exampleFa: string;
+    level: string | null;
+  }> = [];
+
   for (const c of cards) {
     const normalized = normalizeGermanWord(c.word);
-    if (!normalized || !c.persianMeaning) continue;
-    await db
-      .insert(globalWords)
-      .values({
-        normalizedWord: normalized,
-        word: c.word,
-        article: c.article,
-        plural: c.plural,
-        partOfSpeech: c.partOfSpeech,
-        verbForms: c.verbForms,
-        persianMeaning: c.persianMeaning,
-        englishMeaning: c.englishMeaning,
-        exampleDe: c.exampleDe,
-        exampleFa: c.exampleFa,
-        level: c.level,
-      })
-      .onConflictDoNothing();
+    if (!normalized || !c.persianMeaning || seen.has(normalized)) continue;
+    seen.add(normalized);
+    rows.push({
+      normalizedWord: normalized,
+      word: c.word,
+      article: c.article,
+      plural: c.plural,
+      partOfSpeech: c.partOfSpeech,
+      verbForms: c.verbForms,
+      persianMeaning: c.persianMeaning,
+      englishMeaning: c.englishMeaning,
+      exampleDe: c.exampleDe,
+      exampleFa: c.exampleFa,
+      level: c.level,
+    });
+  }
+
+  if (rows.length > 0) {
+    await db.insert(globalWords).values(rows).onConflictDoNothing();
   }
 }
 
@@ -114,7 +131,39 @@ async function resolveWordListWithCache(tokens: string[]): Promise<{
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const mode = body.mode as 'text' | 'image';
+    const mode = body.mode as 'text' | 'image' | 'image-ocr' | 'words-batch';
+
+    // Step 1 (Fast Vision OCR only): extracts ALL words from a textbook/notes photo in ~2-5s
+    if (mode === 'image-ocr') {
+      const imageBase64 = String(body.imageBase64 || '').trim();
+      const mimeType = String(body.mimeType || 'image/jpeg').trim();
+      const hint = body.hint ? String(body.hint).trim() : undefined;
+
+      if (!imageBase64) {
+        return NextResponse.json({ error: 'لطفاً یک تصویر انتخاب کنید.' }, { status: 400 });
+      }
+
+      const words = await extractWordListFromImage(imageBase64, mimeType, hint);
+      return NextResponse.json({ words });
+    }
+
+    // Step 2 (Fast chunk enrichment): resolves a batch of up to 30 words via Neon cache + Gemini
+    if (mode === 'words-batch') {
+      const rawWords = Array.isArray(body.words)
+        ? body.words.map((w: unknown) => String(w || '').trim()).filter(Boolean).slice(0, 35)
+        : [];
+      if (rawWords.length === 0) {
+        return NextResponse.json({ cards: [], stats: { fromCache: 0, fromAi: 0 } });
+      }
+      const result = await resolveWordListWithCache(rawWords);
+      return NextResponse.json({
+        cards: result.cards,
+        stats: {
+          fromCache: result.fromCache,
+          fromAi: result.fromAi,
+        },
+      });
+    }
 
     if (mode === 'text') {
       const rawText = String(body.text || '').trim();
